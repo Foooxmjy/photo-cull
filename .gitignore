@@ -1,0 +1,8 @@
+# Files the tool writes into photo folders; never commit them if you test inside the repo.
+photo-cull.json
+photo-cull-moves.json
+
+# OS clutter
+Thumbs.db
+desktop.ini
+.DS_Store
