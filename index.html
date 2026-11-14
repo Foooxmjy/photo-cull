@@ -126,6 +126,19 @@ dialog textarea {
 dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 dialog .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 dialog .inline input[type=number] { width: 64px; }
+#dlgReview { width: min(1180px, calc(100vw - 32px)); padding: 0; overflow: hidden; }
+.rv { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: min(680px, calc(100vh - 64px)); }
+.rv-img { background: #050506; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.rv-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.rv-side { padding: 18px 20px; overflow: auto; outline: none; }
+.rv-opts { display: grid; gap: 8px; margin: 12px 0 16px; }
+.rv-opts button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; font-size: 15px; white-space: normal; }
+.rv-opts button small { margin-left: auto; color: var(--muted); white-space: nowrap; }
+.rv-opts button.on { border-color: var(--accent); background: rgba(76,141,255,.18); }
+.rv-hint { font-size: 12px; line-height: 1.9; margin-top: 16px; }
+@media (max-width: 760px) {
+  .rv { grid-template-columns: 1fr; grid-template-rows: 40vh auto; height: auto; max-height: calc(100vh - 32px); }
+}
 .ai-status { min-height: 1.45em; margin: 10px 0 0; color: var(--muted); }
 .ai-status.err { color: #ff8a8e; }
 .tile.sel { border-color: var(--accent); }
@@ -280,16 +293,18 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 
 <dialog id="dlgAi">
   <h3>AI 分类建议（可选）</h3>
-  <p class="muted">用 CLIP 或 BioCLIP 模型在你的电脑上给<b>未分类</b>的照片猜一个分类，每组连拍只识别最清楚的一张。结果只是建议，要你按 <kbd>A</kbd> 确认才会生效。照片不会上传；第一次使用要从 Hugging Face 下载模型（约 300 MB）。</p>
-  <label class="field"><span>候选分类，每行一个。模型只懂英文，中文分类请写成“中文名 = English name”，例如“非洲企鹅 = African penguin”。</span>
-    <textarea id="aiCands" spellcheck="false" placeholder="非洲企鹅 = African penguin&#10;南露脊鲸 = southern right whale&#10;岩蹄兔 = rock hyrax"></textarea>
+  <p class="muted">用 CLIP 或 BioCLIP 模型在你的电脑上识别<b>未分类</b>的照片，每组连拍只识别最清楚的一张。识别完后逐组给出 3 个备选，由你选一个，或者都不选、手动输入。照片不会上传；第一次使用要从 Hugging Face 下载模型（约 300 MB）。</p>
+  <label class="check"><input type="checkbox" id="aiVocGeneral"><span>使用内置通用词表（常见动物、植物、风景等大类，<span id="aiVocGeneralN"></span> 项）</span></label>
+  <label class="check"><input type="checkbox" id="aiVocSa"><span>使用内置南部非洲物种词表（常见鸟类、兽类等，精确到种，<span id="aiVocSaN"></span> 项）</span></label>
+  <label class="field"><span>自定义候选分类（可选），每行一个，和内置词表一起参与识别。模型只懂英文，中文分类请写成“中文名 = English name”，例如“非洲企鹅 = African penguin”。</span>
+    <textarea id="aiCands" spellcheck="false" placeholder="可以留空，直接用内置词表识别"></textarea>
   </label>
-  <div class="inline"><button type="button" id="aiFill">填入已有的分类名</button></div>
+  <div class="inline"><button type="button" id="aiFill">填入已有的分类名</button><button type="button" id="aiEditVocab" title="把勾选的内置词表复制到上面的框里，方便修改中文名或删掉不需要的项">编辑内置词表</button></div>
   <div class="two">
     <label class="field"><span>模型</span>
       <select id="aiModel">
-        <option value="Xenova/clip-vit-base-patch32">CLIP ViT-B/32（通用，约 300 MB）</option>
-        <option value="jsteinshouer/trail-bingo-bioclip-onnx">BioCLIP（物种识别专用，约 300 MB）</option>
+        <option value="jsteinshouer/trail-bingo-bioclip-onnx">BioCLIP（动植物识别更准，约 300 MB）</option>
+        <option value="Xenova/clip-vit-base-patch32">CLIP ViT-B/32（通用，风景人物更好，约 300 MB）</option>
         <option value="custom">自定义模型 ID…</option>
       </select>
     </label>
@@ -308,7 +323,28 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <span class="inline"><button type="button" id="aiAccept">接受高置信度建议</button><span class="muted">置信度 ≥</span><input type="number" id="aiThr" min="30" max="100" step="5"><span class="muted">%</span></span>
     <span class="spacer"></span>
     <button type="button" id="aiClose">关闭</button>
+    <button type="button" id="aiReview">逐组确认</button>
     <button type="button" id="aiRun" class="primary">开始识别</button>
+  </div>
+</dialog>
+
+<dialog id="dlgReview">
+  <div class="rv">
+    <div class="rv-img"><img id="rvImg" alt=""></div>
+    <div class="rv-side" id="rvSide" tabindex="-1">
+      <h3>逐组确认分类</h3>
+      <p class="muted" id="rvInfo"></p>
+      <div class="rv-opts" id="rvOpts"></div>
+      <label class="field"><span>都不对？按 <kbd>T</kbd> 手动输入，回车确认</span>
+        <input type="text" id="rvInput" list="labelList" autocomplete="off" maxlength="60"></label>
+      <div class="row">
+        <button type="button" id="rvPrev">← 上一组</button>
+        <button type="button" id="rvSkip">跳过（空格）</button>
+        <span class="spacer"></span>
+        <button type="button" id="rvClose" class="primary">完成</button>
+      </div>
+      <p class="muted rv-hint">数字键选择备选 · <kbd>T</kbd> 手动输入 · 空格或 <kbd>→</kbd> 跳过 · <kbd>←</kbd> 上一组 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销 · <kbd>Esc</kbd> 关闭</p>
+    </div>
   </div>
 </dialog>
 
@@ -337,6 +373,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <dt><kbd>X</kbd> / <kbd>Delete</kbd></dt><dd>标记 / 取消待删除</dd>
     <dt><kbd>T</kbd></dt><dd>设置分类（物种、主题等），默认套用到整组连拍</dd>
     <dt><kbd>A</kbd></dt><dd>接受分类建议（虚线标签），并跳到下一张未分类的照片</dd>
+    <dt><kbd>R</kbd></dt><dd>逐组确认：每组给出 AI 的 3 个备选，按数字键选，都不对就手动输入</dd>
     <dt><kbd>G</kbd></dt><dd>选中当前照片所在的整组连拍</dd>
     <dt><kbd>B</kbd></dt><dd>跳到本组最佳的一张</dd>
     <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动；按住 <kbd>Shift</kbd> 扩大选择</dd>
@@ -589,9 +626,417 @@ function focusPoint(d, W, H) {
 }
 </script>
 
+<!-- Built-in vocabularies for AI suggestions, one "中文名 = English prompt" per line (same format as the custom list). -->
+<script id="vocab-general" type="text/plain">
+企鹅 = penguin
+鸵鸟 = ostrich
+鸸鹋 = emu
+鸭 = duck
+雁 = goose
+天鹅 = swan
+䴙䴘 = grebe
+鸬鹚 = cormorant
+鹈鹕 = pelican
+鲣鸟 = gannet
+军舰鸟 = frigatebird
+信天翁 = albatross
+海鸥 = seagull
+燕鸥 = tern
+海鹦 = puffin
+鹭 = heron
+白鹭 = egret
+鹳 = stork
+鹮 = ibis
+琵鹭 = spoonbill
+火烈鸟 = flamingo
+鹤 = crane bird
+骨顶鸡 = coot
+鸻 = plover
+鹬 = sandpiper
+蛎鹬 = oystercatcher
+麦鸡 = lapwing
+鹰 = hawk
+雕 = eagle
+鵟 = buzzard
+鸢 = kite bird of prey
+隼 = falcon
+秃鹫 = vulture
+猫头鹰 = owl
+鸽子 = pigeon
+斑鸠 = dove
+鹦鹉 = parrot
+杜鹃 = cuckoo
+蕉鹃 = turaco
+咬鹃 = trogon
+翠鸟 = kingfisher
+蜂虎 = bee-eater
+佛法僧 = roller bird
+戴胜 = hoopoe
+犀鸟 = hornbill
+啄木鸟 = woodpecker
+巨嘴鸟 = toucan
+蜂鸟 = hummingbird
+夜鹰 = nightjar
+雨燕 = swift bird
+燕子 = swallow bird
+花蜜鸟 = sunbird
+食蜜鸟 = sugarbird
+绣眼鸟 = white-eye bird
+鹎 = bulbul
+鸫 = thrush
+鸲 = robin
+鹟 = flycatcher
+莺 = warbler
+山雀 = tit bird
+鹡鸰 = wagtail
+百灵 = lark
+伯劳 = shrike
+卷尾 = drongo
+黄鹂 = oriole
+乌鸦 = crow
+喜鹊 = magpie
+椋鸟 = starling
+八哥 = myna
+织雀 = weaver bird
+麻雀 = sparrow
+雀 = finch
+金丝雀 = canary
+梅花雀 = waxbill
+鹀 = bunting
+鼠鸟 = mousebird
+鹪鹩 = wren
+珠鸡 = guineafowl
+雉鸡 = pheasant
+鹧鸪 = partridge
+鹌鹑 = quail
+孔雀 = peafowl
+鸡 = chicken
+火鸡 = turkey
+狮子 = lion
+老虎 = tiger
+豹 = leopard
+猎豹 = cheetah
+美洲豹 = jaguar
+薮猫 = serval
+狞猫 = caracal
+猫 = cat
+狗 = dog
+狼 = wolf
+狐狸 = fox
+胡狼 = jackal
+鬣狗 = hyena
+非洲野犬 = African wild dog
+熊 = bear
+北极熊 = polar bear
+大熊猫 = giant panda
+小熊猫 = red panda
+浣熊 = raccoon
+獾 = badger
+水獭 = otter
+獴 = mongoose
+狐獴 = meerkat
+黄鼠狼 = weasel
+海豹 = seal
+海狮 = sea lion
+海象 = walrus
+鲸 = whale
+海豚 = dolphin
+大象 = elephant
+犀牛 = rhinoceros
+河马 = hippopotamus
+长颈鹿 = giraffe
+斑马 = zebra
+马 = horse
+驴 = donkey
+骆驼 = camel
+羊驼 = alpaca
+牛 = cow
+水牛 = buffalo
+野牛 = bison
+牦牛 = yak
+绵羊 = sheep
+山羊 = goat
+羚羊 = antelope
+瞪羚 = gazelle
+角马 = wildebeest
+鹿 = deer
+驼鹿 = moose
+野猪 = wild boar
+疣猪 = warthog
+猪 = pig
+猴子 = monkey
+狒狒 = baboon
+猩猩 = orangutan
+黑猩猩 = chimpanzee
+大猩猩 = gorilla
+长臂猿 = gibbon
+狐猴 = lemur
+袋鼠 = kangaroo
+考拉 = koala
+树懒 = sloth
+食蚁兽 = anteater
+犰狳 = armadillo
+穿山甲 = pangolin
+蹄兔 = hyrax
+兔子 = rabbit
+野兔 = hare
+松鼠 = squirrel
+地松鼠 = ground squirrel
+花栗鼠 = chipmunk
+土拨鼠 = marmot
+河狸 = beaver
+豪猪 = porcupine
+刺猬 = hedgehog
+老鼠 = mouse
+水豚 = capybara
+蝙蝠 = bat
+蛇 = snake
+蜥蜴 = lizard
+鬣蜥 = agama lizard
+壁虎 = gecko
+变色龙 = chameleon
+巨蜥 = monitor lizard
+鳄鱼 = crocodile
+乌龟 = turtle
+陆龟 = tortoise
+海龟 = sea turtle
+青蛙 = frog
+蟾蜍 = toad
+蝾螈 = salamander
+鱼 = fish
+鲨鱼 = shark
+鳐鱼 = stingray
+水母 = jellyfish
+章鱼 = octopus
+螃蟹 = crab
+龙虾 = lobster
+海星 = starfish
+海葵 = sea anemone
+蜗牛 = snail
+蝴蝶 = butterfly
+蛾 = moth
+蜻蜓 = dragonfly
+蜜蜂 = bee
+黄蜂 = wasp
+蚂蚁 = ant
+甲虫 = beetle
+瓢虫 = ladybug
+蝗虫 = grasshopper
+螳螂 = praying mantis
+蝉 = cicada
+苍蝇 = fly insect
+蜘蛛 = spider
+蝎子 = scorpion
+毛毛虫 = caterpillar
+花 = flower
+帝王花 = protea flower
+针垫花 = pincushion protea flower
+鹤望兰 = bird of paradise flower
+玫瑰 = rose
+向日葵 = sunflower
+雏菊 = daisy
+兰花 = orchid
+百合 = lily
+郁金香 = tulip
+荷花 = lotus flower
+樱花 = cherry blossom
+欧石楠 = heather flower
+芦荟 = aloe plant
+仙人掌 = cactus
+多肉植物 = succulent plant
+蕨类 = fern
+苔藓 = moss
+蘑菇 = mushroom
+树 = tree
+棕榈树 = palm tree
+草 = grass
+叶子 = leaf
+果实 = fruit on a branch
+风景 = landscape
+山 = mountain
+海 = sea
+海滩 = beach
+海浪 = breaking wave
+礁石 = rocky coast
+河流 = river
+湖 = lake
+瀑布 = waterfall
+森林 = forest
+沙漠 = desert
+草原 = savanna
+天空 = cloudy sky
+日落 = sunset
+星空 = starry night sky
+月亮 = moon
+雪景 = snowy landscape
+城市 = city street
+建筑 = building
+房屋 = house
+桥 = bridge
+道路 = road
+汽车 = car
+船 = boat
+飞机 = airplane
+人物 = person
+人群 = crowd of people
+食物 = plate of food
+</script>
+
+<script id="vocab-sa" type="text/plain">
+非洲企鹅 = African penguin
+开普鸬鹚 = Cape cormorant
+白胸鸬鹚 = white-breasted cormorant
+开普鲣鸟 = Cape gannet
+黑背鸥 = kelp gull
+哈氏鸥 = Hartlaub's gull
+大凤头燕鸥 = greater crested tern
+非洲黑蛎鹬 = African oystercatcher
+白额沙鸻 = white-fronted plover
+黑背麦鸡 = blacksmith lapwing
+翻石鹬 = ruddy turnstone
+中杓鹬 = whimbrel
+灰鹭 = grey heron
+黑头鹭 = black-headed heron
+牛背鹭 = cattle egret
+小白鹭 = little egret
+锤头鹳 = hamerkop
+噪鹮 = hadada ibis
+圣鹮 = African sacred ibis
+非洲琵鹭 = African spoonbill
+大红鹳 = greater flamingo
+蓝鹤 = blue crane
+埃及雁 = Egyptian goose
+黄嘴鸭 = yellow-billed duck
+红瘤白骨顶 = red-knobbed coot
+鸵鸟 = common ostrich
+珠鸡 = helmeted guineafowl
+开普鹧鸪 = Cape spurfowl
+蛇鹫 = secretarybird
+开普兀鹫 = Cape vulture
+非洲海雕 = African fish eagle
+黑雕 = Verreaux's eagle
+豺鵟 = jackal buzzard
+黑肩鸢 = black-winged kite
+黄嘴鸢 = yellow-billed kite
+岩红隼 = rock kestrel
+斑雕鸮 = spotted eagle-owl
+仓鸮 = barn owl
+斑鸽 = speckled pigeon
+环颈斑鸠 = Cape turtle dove
+红眼斑鸠 = red-eyed dove
+棕斑鸠 = laughing dove
+尼斯纳蕉鹃 = Knysna turaco
+绿颊咬鹃 = Narina trogon
+斑鼠鸟 = speckled mousebird
+非洲戴胜 = African hoopoe
+斑鱼狗 = pied kingfisher
+冠翠鸟 = malachite kingfisher
+欧洲蜂虎 = European bee-eater
+紫胸佛法僧 = lilac-breasted roller
+南黄嘴犀鸟 = southern yellow-billed hornbill
+红脸地犀鸟 = southern ground hornbill
+家燕 = barn swallow
+大纹燕 = greater striped swallow
+岩燕 = rock martin
+双领花蜜鸟 = southern double-collared sunbird
+辉绿花蜜鸟 = malachite sunbird
+橙胸花蜜鸟 = orange-breasted sunbird
+紫水晶花蜜鸟 = amethyst sunbird
+开普食蜜鸟 = Cape sugarbird
+开普绣眼鸟 = Cape white-eye
+开普鹎 = Cape bulbul
+暗色鹎 = sombre greenbul
+橄榄鸫 = olive thrush
+开普矶鸫 = Cape rock thrush
+开普鸲鸫 = Cape robin-chat
+薮䳭 = familiar chat
+非洲石䳭 = African stonechat
+白腹鹟 = fiscal flycatcher
+暗色鹟 = African dusky flycatcher
+开普蓬背鹟 = Cape batis
+非洲寿带 = African paradise flycatcher
+卡鲁鹪莺 = Karoo prinia
+开普草莺 = Cape grassbird
+开普鹡鸰 = Cape wagtail
+橙喉长爪鹡鸰 = Cape longclaw
+非洲伯劳 = southern fiscal
+南非黑鵙 = southern boubou
+黄喉丛鵙 = bokmakierie
+叉尾卷尾 = fork-tailed drongo
+非洲渡鸦 = white-necked raven
+斑驳鸦 = pied crow
+红翅椋鸟 = red-winged starling
+紫翅椋鸟 = common starling
+开普织雀 = Cape weaver
+黑额织雀 = southern masked weaver
+红寡妇鸟 = southern red bishop
+黄寡妇鸟 = yellow bishop
+针尾维达雀 = pin-tailed whydah
+横斑梅花雀 = common waxbill
+开普麻雀 = Cape sparrow
+开普金丝雀 = Cape canary
+硫磺丝雀 = brimstone canary
+开普鹀 = Cape bunting
+查克马狒狒 = chacma baboon
+青腹绿猴 = vervet monkey
+岩蹄兔 = rock hyrax
+开普灰羚 = Cape grysbok
+小岩羚 = steenbok
+灰小羚羊 = common duiker
+山羚 = klipspringer
+白纹牛羚 = bontebok
+跳羚 = springbok
+黑斑羚 = impala
+大羚羊 = common eland
+大扭角林羚 = greater kudu
+南非剑羚 = gemsbok
+蓝角马 = blue wildebeest
+非洲水牛 = African buffalo
+开普山斑马 = Cape mountain zebra
+平原斑马 = plains zebra
+长颈鹿 = giraffe
+非洲象 = African elephant
+白犀 = white rhinoceros
+黑犀 = black rhinoceros
+河马 = hippopotamus
+疣猪 = common warthog
+狮子 = lion
+花豹 = African leopard
+猎豹 = cheetah
+狞猫 = caracal
+薮猫 = serval
+黑背胡狼 = black-backed jackal
+斑鬣狗 = spotted hyena
+非洲野犬 = African wild dog
+蜜獾 = honey badger
+狐獴 = meerkat
+黄獴 = yellow mongoose
+开普地松鼠 = Cape ground squirrel
+开普豪猪 = Cape porcupine
+南非海狗 = Cape fur seal
+南露脊鲸 = southern right whale
+座头鲸 = humpback whale
+宽吻海豚 = bottlenose dolphin
+真海豚 = common dolphin
+大白鲨 = great white shark
+南非岩鬣蜥 = southern rock agama
+环尾蜥 = girdled lizard
+豹纹陆龟 = leopard tortoise
+挺胸龟 = angulate tortoise
+尼罗鳄 = Nile crocodile
+鼓腹咝蝰 = puff adder
+开普眼镜蛇 = Cape cobra
+小红蛱蝶 = painted lady butterfly
+帝王花 = king protea
+针垫花 = pincushion protea
+鹤望兰 = strelitzia bird of paradise flower
+欧石楠 = erica heath flower
+芦荟 = aloe
+</script>
+
 <script>
 'use strict';
-const IMG_RE = /\.(jpe?g|png|webp)$/i;
+const IMG_RE =/\.(jpe?g|png|webp)$/i;
 const SIDECAR = 'photo-cull.json';
 const MOVELOG = 'photo-cull-moves.json';
 const REJECT_DIR = '_待删除';
@@ -600,7 +1045,8 @@ const $ = s => document.querySelector(s);
 
 const DEFAULTS = {
   burstGap: 2, blurRatio: 50, blurPct: 10, recursive: true, autoAdvance: true, groupView: true, tile: 190,
-  burstLabel: true, aiModel: 'Xenova/clip-vit-base-patch32', aiHost: 'auto', aiAccept: 80,
+  burstLabel: true, aiModel: 'jsteinshouer/trail-bingo-bioclip-onnx', aiHost: 'auto', aiAccept: 80,
+  vocGeneral: true, vocSa: true,
 };
 const settings = loadSettings();
 function loadSettings() {
@@ -1372,10 +1818,11 @@ const AI_LIBS = [
   'https://unpkg.com/@huggingface/transformers@3.8.1/dist/',
 ];
 const AI_HOSTS = { hf: 'https://huggingface.co/', mirror: 'https://hf-mirror.com/' };
-const AI_PROMPT = 'a photo of {}';
+const AI_PROMPT = 'a photo of a {}';
 const ai = {
   worker: null, lib: null, loaded: null, busy: false, cancel: false,
   seq: 0, pending: new Map(), files: new Map(),
+  text: new Map(),  // prompt -> text embedding for the loaded model
   emb: new Map(),   // photo -> image embedding, kept for the session so a new candidate list re-scores instantly
   crop: 0.7,        // side fraction of the crop taken around the in-focus area
   // 8-bit quantised CLIP text weights wreck zero-shot accuracy (12/27 vs 27/27 groups in testing), so use fp16.
@@ -1457,6 +1904,28 @@ async function aiLoad(model, hostPref) {
   ai.used = (await aiCall({ type: 'load', lib: ai.lib, host, model, manifest, dtype: ai.dtype, device: ai.device })).device;
   ai.loaded = model;
   ai.emb = new Map();
+  ai.text = new Map();
+}
+
+const vocab = id => parseCandidates($('#vocab-' + id).textContent);
+
+// Custom lines first, then the ticked built-in vocabularies; the same label may appear with several prompts.
+function allCandidates() {
+  const out = parseCandidates($('#aiCands').value);
+  if ($('#aiVocSa').checked) out.push(...vocab('sa'));
+  if ($('#aiVocGeneral').checked) out.push(...vocab('general'));
+  const seen = new Set();
+  return out.filter(c => { const k = c.label + '|' + c.prompt.toLowerCase(); return seen.has(k) ? false : seen.add(k); });
+}
+
+async function embedCandidates(cands) {
+  const prompts = [...new Set(cands.map(c => AI_PROMPT.replace('{}', c.prompt)))].filter(t => !ai.text.has(t));
+  for (let i = 0; i < prompts.length && !ai.cancel; i += 32) {
+    aiStatus(`正在准备候选分类 ${Math.min(i + 32, prompts.length)} / ${prompts.length}`, i / prompts.length);
+    const part = prompts.slice(i, i + 32);
+    const t = await aiCall({ type: 'text', texts: part });
+    part.forEach((p, k) => ai.text.set(p, t.emb.subarray(k * t.dim, (k + 1) * t.dim)));
+  }
 }
 
 function parseCandidates(text) {
@@ -1476,26 +1945,35 @@ function repOf(g) {
   return g.photos.reduce((a, p) => (!p.error && (!a || p.sharp > a.sharp) ? p : a), null);
 }
 
-function scoreAll(cands, T, d) {
+function scoreAll(cands) {
+  const T = cands.map(c => ai.text.get(AI_PROMPT.replace('{}', c.prompt)));
   for (const [p, e] of ai.emb) {
-    const logits = cands.map((c, i) => { let s = 0; for (let j = 0; j < d; j++) s += e[j] * T[i * d + j]; return 100 * s; });
+    const logits = T.map(t => { let s = 0; for (let j = 0; j < e.length; j++) s += e[j] * t[j]; return 100 * s; });
     const top = Math.max(...logits), ex = logits.map(v => Math.exp(v - top)), sum = ex.reduce((a, b) => a + b, 0);
     const by = new Map();
     cands.forEach((c, i) => by.set(c.label, (by.get(c.label) || 0) + ex[i] / sum));
-    p.ai = [...by].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, v]) => [l, Math.round(v * 1000) / 1000]);
+    const top8 = [...by].sort((a, b) => b[1] - a[1]).slice(0, 8);
+    // "企鹅" and "非洲企鹅" split one guess in two: fold a general name into the best more specific name
+    // ending with it, unless the specific one is far behind.
+    for (const g of top8.slice()) {
+      const spec = top8.filter(s => s !== g && s[0].length > g[0].length && s[0].endsWith(g[0])).sort((a, b) => b[1] - a[1])[0];
+      if (spec && spec[1] >= g[1] / 2) { spec[1] += g[1]; top8.splice(top8.indexOf(g), 1); }
+    }
+    p.ai = top8.sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, v]) => [l, Math.round(v * 1000) / 1000]);
   }
 }
 
 async function runAi() {
   if (ai.busy) { ai.cancel = true; return; }
   if (!state.analyzed) { aiNote('请等自动分析完成后再开始。', true); return; }
-  const cands = parseCandidates($('#aiCands').value);
-  if (new Set(cands.map(c => c.label)).size < 2) { aiNote('请至少填写 2 个候选分类。', true); return; }
+  const cands = allCandidates();
+  if (new Set(cands.map(c => c.label)).size < 2) { aiNote('请勾选一个内置词表，或者至少填写 2 个候选分类。', true); return; }
   const model = $('#aiModel').value === 'custom' ? $('#aiModelId').value.trim() : $('#aiModel').value;
   if (!model) { aiNote('请填写模型 ID。', true); return; }
   state.candidates = $('#aiCands').value;
   try { localStorage.setItem('photo-cull-candidates', state.candidates); } catch (e) { /* private mode */ }
   settings.aiModel = model; settings.aiHost = $('#aiHost').value;
+  settings.vocGeneral = $('#aiVocGeneral').checked; settings.vocSa = $('#aiVocSa').checked;
   saveSettings();
   markDirty();
 
@@ -1512,13 +1990,17 @@ async function runAi() {
       catch (e) { failed++; console.error(e); }
     }
     if (gen !== state.gen) return;
-    const t = await aiCall({ type: 'text', texts: cands.map(c => AI_PROMPT.replace('{}', c.prompt)) });
-    scoreAll(cands, t.emb, t.dim);
+    await embedCandidates(cands);
+    if (gen !== state.gen) return;
+    const ready = cands.filter(c => ai.text.has(AI_PROMPT.replace('{}', c.prompt)));
+    if (ready.length > 1) scoreAll(ready);
     refreshSuggestions();
     markDirty();
     updateStatus();
     progress(null);
     aiSummary((ai.cancel ? '已取消，已识别的部分保留。' : '识别完成。') + (failed ? `${failed} 张照片识别失败。` : ''));
+    // Straight into the pick-one-of-three review, unless the run was cancelled or the dialog was closed meanwhile.
+    if (!ai.cancel && $('#dlgAi').open && reviewList().length) { $('#dlgAi').close(); openReview(); }
   } catch (e) {
     progress(null);
     aiNote('出错了：' + e.message, true);
@@ -1552,8 +2034,12 @@ function acceptConfident() {
 function openAiDialog() {
   let text = state.candidates;
   if (!text) { try { text = localStorage.getItem('photo-cull-candidates') || ''; } catch (e) { /* private mode */ } }
-  $('#aiCands').value = text || allLabels().join('\n');
-  const known = [...$('#aiModel').options].some(o => o.value === settings.aiModel);
+  $('#aiCands').value = text;
+  $('#aiVocGeneral').checked = settings.vocGeneral;
+  $('#aiVocSa').checked = settings.vocSa;
+  $('#aiVocGeneralN').textContent = vocab('general').length;
+  $('#aiVocSaN').textContent = vocab('sa').length;
+  const known =[...$('#aiModel').options].some(o => o.value === settings.aiModel);
   $('#aiModel').value = known ? settings.aiModel : 'custom';
   $('#aiModelId').value = known ? '' : settings.aiModel;
   $('#aiModelIdRow').hidden = known;
@@ -1561,6 +2047,109 @@ function openAiDialog() {
   $('#aiThr').value = settings.aiAccept;
   if (!ai.busy) aiSummary();
   $('#dlgAi').showModal();
+}
+
+/* ---------- review: step through the groups, pick one of the guesses or type a label ---------- */
+const review = { list: [], i: 0, tok: 0, url: null };
+
+const reviewList = () => state.groups.filter(g => g.photos.some(p => !p.label));
+
+function openReview() {
+  if (!state.analyzed) { toast('请等自动分析完成后再开始'); return; }
+  review.list = reviewList();
+  if (!review.list.length) { toast('所有照片都已经分类了'); return; }
+  const at = state.cur ? review.list.indexOf(state.cur.group) : -1;
+  review.i = Math.max(0, at);
+  review.active = true;
+  $('#dlgReview').showModal();
+  renderReview();
+}
+
+function reviewOptions(g) {
+  const opts = (groupAi(g) || []).map(([label, v]) => ({ label, note: Math.round(v * 100) + '%' }));
+  if (g.prevLabel && !opts.some(o => o.label === g.prevLabel)) opts.push({ label: g.prevLabel, note: '沿用上一组' });
+  return opts;
+}
+
+async function renderReview() {
+  const g = review.list[review.i];
+  if (!g) { closeReview(); toast('已经看完所有待分类的照片'); return; }
+  const rep = repOf(g) || g.photos[0], n = g.photos.length;
+  const current = groupLabel(g);
+  $('#rvInfo').innerHTML = `第 ${review.i + 1} / ${review.list.length} 组 · ${n > 1 ? `连拍 ${n} 张` : '单张'}<br>${escapeHtml(rep.name)} · ${fmtTime(capTime(rep))}` +
+    (current ? `<br>当前分类：<b>${escapeHtml(current)}</b>` : '');
+  const opts = reviewOptions(g);
+  $('#rvOpts').innerHTML = opts.length
+    ? opts.map((o, k) => `<button type="button" data-label="${escapeHtml(o.label)}" class="${o.label === current ? 'on' : ''}"><kbd>${k + 1}</kbd>${escapeHtml(o.label)}<small>${o.note}</small></button>`).join('')
+    : '<p class="muted">这一组还没有 AI 识别结果，可以手动输入分类。</p>';
+  $('#rvInput').value = '';
+  $('#rvPrev').disabled = review.i === 0;
+  $('#rvSide').focus();  // keep focus off the buttons so Space and the digit keys are ours
+  const tok = ++review.tok, img = $('#rvImg');
+  if (rep.thumb) img.src = rep.thumb; else img.removeAttribute('src');
+  const file = await getFile(rep);
+  if (tok !== review.tok || !$('#dlgReview').open) return;
+  if (review.url) URL.revokeObjectURL(review.url);
+  review.url = URL.createObjectURL(file);
+  img.src = review.url;
+}
+
+// Covers the photos of the group that are unlabelled, or that got their label from this review (so a choice can be changed).
+function reviewApply(label) {
+  const g = review.list[review.i];
+  label = sanitizeLabel(label);
+  if (!g || !label) return;
+  const ts = g.photos.filter(p => !p.label || p.label === g.reviewed);
+  if (ts.length) edit(ts, p => { p.label = label; });
+  g.reviewed = label;
+  reviewStep(1);
+}
+
+function reviewStep(d) {
+  review.i = Math.max(0, review.i + d);
+  renderReview();
+}
+
+function closeReview() {
+  if ($('#dlgReview').open) $('#dlgReview').close();
+  reviewClosed();
+}
+
+// Also wired to the dialog's "close" event, which can arrive late (or not at all in a background tab), hence the flag.
+function reviewClosed() {
+  if (!review.active) return;
+  review.active = false;
+  const g = review.list[Math.min(review.i, review.list.length - 1)];
+  review.tok++;
+  if (review.url) { URL.revokeObjectURL(review.url); review.url = null; }
+  $('#rvImg').removeAttribute('src');
+  const rep = g && (repOf(g) || g.photos[0]);
+  if (rep && state.visible.includes(rep)) setCur(rep);
+}
+
+function reviewKey(e) {
+  const k = e.key, ctrl = e.ctrlKey || e.metaKey;
+  if (k === 'Escape') { e.preventDefault(); closeReview(); return; }
+  if (ctrl && (k === 'z' || k === 'Z')) {
+    e.preventDefault();
+    const rec = state.undo[state.undo.length - 1];
+    if (!rec) return;
+    const at = review.list.indexOf(rec[0].p.group);  // go back to the group whose label was just undone
+    undo();
+    if (at >= 0) review.i = at;
+    renderReview();
+    return;
+  }
+  if (e.target === $('#rvInput')) {
+    if (k === 'Enter') { e.preventDefault(); reviewApply($('#rvInput').value); }
+    return;
+  }
+  if (ctrl || e.altKey) return;
+  const btns = $('#rvOpts').querySelectorAll('button');
+  if (k >= '1' && k <= '9' && btns[+k - 1]) { e.preventDefault(); reviewApply(btns[+k - 1].dataset.label); }
+  else if (k === 't' || k === 'T') { e.preventDefault(); $('#rvInput').focus(); }
+  else if (k === ' ' || k === 'ArrowRight') { e.preventDefault(); reviewStep(1); }
+  else if (k === 'ArrowLeft') { e.preventDefault(); reviewStep(-1); }
 }
 
 /* ---------- organize ---------- */
@@ -1874,6 +2463,27 @@ $('#labelCancel').onclick = () => $('#dlgLabel').close();
 $('#btnAi').onclick = openAiDialog;
 $('#aiRun').onclick = runAi;
 $('#aiClose').onclick = () => $('#dlgAi').close();
+$('#aiReview').onclick = () => { $('#dlgAi').close(); openReview(); };
+$('#aiEditVocab').onclick = () => {
+  const box = $('#aiCands');
+  const have = new Set(parseCandidates(box.value).map(c => c.label + '|' + c.prompt));
+  const add = [];
+  for (const id of ['Sa', 'General']) {
+    if (!$('#aiVoc' + id).checked) continue;
+    for (const c of vocab(id.toLowerCase())) if (!have.has(c.label + '|' + c.prompt)) add.push(`${c.label} = ${c.prompt}`);
+    $('#aiVoc' + id).checked = false;
+  }
+  if (!add.length) { aiNote('请先勾选要编辑的内置词表。', true); return; }
+  box.value = (box.value.trim() ? box.value.replace(/\s+$/, '') + '\n' : '') + add.join('\n');
+  aiNote(`已把 ${add.length} 项复制到上面的框里，并取消了内置词表的勾选。改好后直接点“开始识别”。`);
+};
+
+$('#dlgReview').addEventListener('keydown', reviewKey);
+$('#dlgReview').addEventListener('close', reviewClosed);
+$('#rvOpts').onclick = e => { const b = e.target.closest('button'); if (b) reviewApply(b.dataset.label); };
+$('#rvPrev').onclick = () => reviewStep(-1);
+$('#rvSkip').onclick = () => reviewStep(1);
+$('#rvClose').onclick = closeReview;
 $('#aiAccept').onclick = acceptConfident;
 $('#aiThr').onchange = () => { if (!ai.busy) aiSummary(); };
 $('#aiModel').onchange = e => { $('#aiModelIdRow').hidden = e.target.value !== 'custom'; };
@@ -1938,6 +2548,7 @@ document.addEventListener('keydown', e => {
   if (k === 'x' || k === 'X' || k === 'Delete' || k === 'Backspace') { e.preventDefault(); toggleReject(); return; }
   if (k === 't' || k === 'T') { e.preventDefault(); openLabelDialog(); return; }
   if (k === 'a' || k === 'A') { acceptKey(); return; }
+  if ((k === 'r' || k === 'R') && !state.loupe) { openReview(); return; }
   if ((k === 'g' || k === 'G') && !state.loupe) { selectGroup(state.cur); return; }
   if ((k === 'b' || k === 'B') && state.cur && state.cur.group && state.cur.group.best) {
     const b = state.cur.group.best;
