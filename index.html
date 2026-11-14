@@ -14,6 +14,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
@@ -59,9 +60,9 @@ select, input[type=text], input[type=number] {
 .menu-list button:hover { background: var(--panel-2); }
 .menu-list small { display: block; color: var(--muted); }
 
-.progress { position: relative; width: 220px; height: 22px; background: var(--panel-2); border-radius: 11px; overflow: hidden; }
+.progress { position: relative; flex: none; width: 300px; max-width: 100%; height: 22px; background: var(--panel-2); border-radius: 11px; overflow: hidden; }
 .progress-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .2s; }
-.progress-text { position: relative; display: block; text-align: center; font-size: 12px; line-height: 22px; }
+.progress-text { position: relative; display: block; padding: 0 10px; text-align: center; font-size: 12px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .banner { padding: 8px 14px; background: #3a2c10; color: #f3d9a4; border-bottom: 1px solid #5a4418; }
 
@@ -111,6 +112,22 @@ main { flex: 1; overflow: auto; position: relative; }
 .chip.blur { background: rgba(229,72,77,.85); color: #fff; }
 .chip.exp { background: rgba(226,163,54,.9); color: #1b1300; }
 .chip.label { background: rgba(76,141,255,.9); color: #fff; }
+.chip.sug { background: rgba(0,0,0,.7); color: #cfe0ff; outline: 1px dashed #7aa7ff; outline-offset: -1px; }
+.group-head .sug { color: #cfe0ff; }
+.group-head .sug b { color: #cfe0ff; }
+.sug-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.sug-row button { padding: 3px 10px; font-size: 12.5px; border-style: dashed; }
+#dlgAi { width: min(640px, calc(100vw - 32px)); }
+dialog textarea {
+  width: 100%; min-height: 170px; resize: vertical; color: inherit;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+  font: 13px/1.5 ui-monospace, Consolas, "Microsoft YaHei", monospace;
+}
+dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+dialog .inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+dialog .inline input[type=number] { width: 64px; }
+.ai-status { min-height: 1.45em; margin: 10px 0 0; color: var(--muted); }
+.ai-status.err { color: #ff8a8e; }
 .tile.sel { border-color: var(--accent); }
 .tile.cur { box-shadow: 0 0 0 2px #fff inset; }
 .tile.reject img { opacity: .28; }
@@ -194,6 +211,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
       <button data-cull="clear">清除全部待删除标记</button>
     </div>
   </div>
+  <button id="btnAi" disabled title="可选：用本机运行的 AI 模型给未分类的照片提供分类建议">AI 建议</button>
   <button id="btnOrganize" disabled>整理文件</button>
   <button id="btnExport" disabled>导出 CSV</button>
   <button id="btnSettings" title="设置">设置</button>
@@ -207,6 +225,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <ul>
       <li><b>自动打分</b>：计算清晰度和曝光，把连拍自动归成一组，标出每组最清楚的一张，提示模糊和曝光问题的照片。</li>
       <li><b>手动评级</b>：键盘 <kbd>1</kbd>–<kbd>5</kbd> 打星，<kbd>X</kbd> 标记待删除，<kbd>T</kbd> 设置分类，<kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销。</li>
+      <li><b>分类建议</b>：给一张照片设置分类，整组连拍自动套用；下一组默认沿用上一组的分类，按 <kbd>A</kbd> 确认。还可以打开可选的 <b>AI 建议</b>，让本机运行的 CLIP 模型先猜一遍。</li>
       <li><b>整理文件</b>：按分类移到子文件夹，待删除的移到 <code>_待删除</code>，不会真的删除，可以一键撤销。</li>
       <li><b>自动保存</b>：评级保存在文件夹里的 <code>photo-cull.json</code>，下次打开同一个文件夹会接着用。</li>
     </ul>
@@ -236,6 +255,8 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
       <input type="text" id="labelInput" list="labelList" autocomplete="off" maxlength="60">
     </label>
     <datalist id="labelList"></datalist>
+    <div class="sug-row" id="labelSug" hidden></div>
+    <label class="check" id="labelBurstRow" hidden><input type="checkbox" id="labelBurst"><span>套用到整组连拍（同组里未分类或分类相同的照片）</span></label>
     <div class="row">
       <button value="cancel" type="button" id="labelCancel">取消</button>
       <button value="ok" class="primary">确定</button>
@@ -257,6 +278,40 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
   </div>
 </dialog>
 
+<dialog id="dlgAi">
+  <h3>AI 分类建议（可选）</h3>
+  <p class="muted">用 CLIP 或 BioCLIP 模型在你的电脑上给<b>未分类</b>的照片猜一个分类，每组连拍只识别最清楚的一张。结果只是建议，要你按 <kbd>A</kbd> 确认才会生效。照片不会上传；第一次使用要从 Hugging Face 下载模型（约 300 MB）。</p>
+  <label class="field"><span>候选分类，每行一个。模型只懂英文，中文分类请写成“中文名 = English name”，例如“非洲企鹅 = African penguin”。</span>
+    <textarea id="aiCands" spellcheck="false" placeholder="非洲企鹅 = African penguin&#10;南露脊鲸 = southern right whale&#10;岩蹄兔 = rock hyrax"></textarea>
+  </label>
+  <div class="inline"><button type="button" id="aiFill">填入已有的分类名</button></div>
+  <div class="two">
+    <label class="field"><span>模型</span>
+      <select id="aiModel">
+        <option value="Xenova/clip-vit-base-patch32">CLIP ViT-B/32（通用，约 300 MB）</option>
+        <option value="jsteinshouer/trail-bingo-bioclip-onnx">BioCLIP（物种识别专用，约 300 MB）</option>
+        <option value="custom">自定义模型 ID…</option>
+      </select>
+    </label>
+    <label class="field"><span>模型下载源</span>
+      <select id="aiHost">
+        <option value="auto">自动选择</option>
+        <option value="hf">huggingface.co</option>
+        <option value="mirror">hf-mirror.com（国内镜像）</option>
+      </select>
+    </label>
+  </div>
+  <label class="field" id="aiModelIdRow" hidden><span>Hugging Face 上 Transformers.js 格式的 CLIP 模型 ID（需要带 fp16 权重）</span>
+    <input type="text" id="aiModelId" placeholder="例如 Xenova/clip-vit-large-patch14" autocomplete="off"></label>
+  <p class="ai-status" id="aiStatus"></p>
+  <div class="row">
+    <span class="inline"><button type="button" id="aiAccept">接受高置信度建议</button><span class="muted">置信度 ≥</span><input type="number" id="aiThr" min="30" max="100" step="5"><span class="muted">%</span></span>
+    <span class="spacer"></span>
+    <button type="button" id="aiClose">关闭</button>
+    <button type="button" id="aiRun" class="primary">开始识别</button>
+  </div>
+</dialog>
+
 <dialog id="dlgSettings">
   <h3>设置</h3>
   <label class="field"><span>连拍间隔（秒）：两张照片拍摄时间相差不超过这个值，就算同一组连拍</span>
@@ -267,6 +322,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <input type="number" id="setPct" min="0" max="50" step="1"></label>
   <label class="check"><input type="checkbox" id="setRecursive"><span>包含子文件夹里的照片（重新打开文件夹后生效）</span></label>
   <label class="check"><input type="checkbox" id="setAdvance"><span>大图模式下打星或标记后自动跳到下一张</span></label>
+  <label class="check"><input type="checkbox" id="setBurstLabel"><span>给一张照片设置分类或接受建议时，自动套用到整组连拍</span></label>
   <div class="row">
     <button type="button" id="setCancel">取消</button>
     <button type="button" id="setOk" class="primary">保存</button>
@@ -279,7 +335,8 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>给选中的照片打 1–5 星</dd>
     <dt><kbd>0</kbd></dt><dd>清除星级和待删除标记</dd>
     <dt><kbd>X</kbd> / <kbd>Delete</kbd></dt><dd>标记 / 取消待删除</dd>
-    <dt><kbd>T</kbd></dt><dd>设置分类（物种、主题等）</dd>
+    <dt><kbd>T</kbd></dt><dd>设置分类（物种、主题等），默认套用到整组连拍</dd>
+    <dt><kbd>A</kbd></dt><dd>接受分类建议（虚线标签），并跳到下一张未分类的照片</dd>
     <dt><kbd>G</kbd></dt><dd>选中当前照片所在的整组连拍</dd>
     <dt><kbd>B</kbd></dt><dd>跳到本组最佳的一张</dd>
     <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动；按住 <kbd>Shift</kbd> 扩大选择</dd>
@@ -395,6 +452,143 @@ function parseTiffTime(v, t) {
 }
 </script>
 
+<!-- Optional AI worker (module). Nothing here runs, and nothing is downloaded, until the user starts "AI 建议". -->
+<script id="ai-worker-src" type="text/plain">
+let tf = null, m = null;
+
+self.onmessage = async (e) => {
+  const q = e.data;
+  try {
+    if (q.type === 'load') self.postMessage({ id: q.id, device: await load(q) });
+    else if (q.type === 'text') self.postMessage({ id: q.id, ...(await embedText(q.texts)) });
+    else if (q.type === 'image') { const emb = await embedImage(q.file, q.crop); self.postMessage({ id: q.id, emb }, [emb.buffer]); }
+  } catch (err) {
+    self.postMessage({ id: q.id, error: String(err && err.message || err) });
+  }
+};
+
+async function load(q) {
+  if (!tf) {
+    tf = await import(q.lib + 'transformers.min.js');
+    tf.env.allowLocalModels = false;
+    tf.env.backends.onnx.wasm.wasmPaths = q.lib;
+  }
+  tf.env.remoteHost = q.host;
+  const progress_callback = p => {
+    if (p.status === 'progress' && p.total) self.postMessage({ type: 'progress', file: p.file, loaded: p.loaded, total: p.total });
+  };
+  const tok = await tf.AutoTokenizer.from_pretrained(q.model, { progress_callback });
+  try {
+    await build(q, q.device, tok, progress_callback);
+    return q.device;
+  } catch (err) {
+    if (q.device === 'wasm') throw err;
+    await build(q, 'wasm', tok, progress_callback);  // WebGPU is faster but not reliable on every machine
+    return 'wasm';
+  }
+}
+
+async function build(q, device, tok, progress_callback) {
+  if (q.manifest) {
+    // "Encoder pair" repos (e.g. the BioCLIP export): two plain ONNX files plus a manifest.json, no config.json.
+    const mf = q.manifest, files = mf.files.fp16 || mf.files.fp32, pp = mf.preprocess;
+    const encoder = file => tf.PreTrainedModel.from_pretrained(q.model, {
+      config: { model_type: 'custom' }, subfolder: '', model_file_name: file.replace(/\.onnx$/, ''),
+      dtype: 'fp32', device, progress_callback,
+    });
+    m = {
+      tok, ctx: mf.contextLength,
+      proc: new tf.CLIPImageProcessor({
+        do_resize: true, size: { shortest_edge: pp.size }, resample: 3,
+        do_center_crop: true, crop_size: { height: pp.size, width: pp.size },
+        do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: pp.mean, image_std: pp.std,
+        do_convert_rgb: true,
+      }),
+      text: await encoder(files.text),
+      vision: await encoder(files.image),
+    };
+    return;
+  }
+  const opts = part => ({ dtype: q.dtype[part], device, progress_callback });
+  m = {
+    tok,
+    proc: await tf.AutoProcessor.from_pretrained(q.model, { progress_callback }),
+    text: await tf.CLIPTextModelWithProjection.from_pretrained(q.model, opts('text')),
+    vision: await tf.CLIPVisionModelWithProjection.from_pretrained(q.model, opts('vision')),
+  };
+}
+
+// The embedding is "text_embeds" / "image_embeds" for Transformers.js CLIP models and the only output otherwise.
+const firstOutput = (out, name) => out[name] || Object.values(out)[0];
+
+// L2-normalise each row so a dot product is the cosine similarity.
+function unit(t) {
+  const [n, d] = t.dims, out = new Float32Array(t.data);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let j = 0; j < d; j++) s += out[i * d + j] ** 2;
+    s = Math.sqrt(s) || 1;
+    for (let j = 0; j < d; j++) out[i * d + j] /= s;
+  }
+  return out;
+}
+
+async function embedText(texts) {
+  const pad = m.ctx ? { padding: 'max_length', max_length: m.ctx, truncation: true } : { padding: true, truncation: true };
+  const t = firstOutput(await m.text(m.tok(texts, pad)), 'text_embeds');
+  return { emb: unit(t), dim: t.dims[1] };
+}
+
+// Wildlife subjects are often small in the frame, so classify a crop around the in-focus area.
+async function embedImage(file, crop) {
+  const bmp = await createImageBitmap(file, { resizeWidth: 1024, resizeQuality: 'medium' });
+  const W = bmp.width, H = bmp.height;
+  const full = new OffscreenCanvas(W, H);
+  const fg = full.getContext('2d', { willReadFrequently: true });
+  fg.drawImage(bmp, 0, 0);
+  bmp.close();
+  let x = 0, y = 0, w = W, h = H;
+  if (crop < 1) {
+    const [cx, cy] = focusPoint(fg.getImageData(0, 0, W, H).data, W, H);
+    w = Math.round(W * crop); h = Math.round(H * crop);
+    x = Math.round(Math.min(W - w, Math.max(0, cx * W - w / 2)));
+    y = Math.round(Math.min(H - h, Math.max(0, cy * H - h / 2)));
+  }
+  const img = new tf.RawImage(fg.getImageData(x, y, w, h).data, w, h, 4);
+  return unit(firstOutput(await m.vision(await m.proc(img)), 'image_embeds'));
+}
+
+// Centre of the sharpest tiles (same 10x10 Laplacian-variance grid as the sharpness score).
+function focusPoint(d, W, H) {
+  const gray = new Float32Array(W * H);
+  for (let i = 0, p = 0; i < gray.length; i++, p += 4) gray[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+  const T = 10, tw = Math.floor(W / T), th = Math.floor(H / T), vars = [];
+  let best = 0;
+  for (let ty = 0; ty < T; ty++) {
+    for (let tx = 0; tx < T; tx++) {
+      let s = 0, s2 = 0, c = 0;
+      const y0 = Math.max(1, ty * th), y1 = Math.min(H - 1, (ty + 1) * th);
+      const x0 = Math.max(1, tx * tw), x1 = Math.min(W - 1, (tx + 1) * tw);
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0, i = y * W + x0; x < x1; x++, i++) {
+          const l = Math.abs(4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - W] - gray[i + W]);
+          s += l; s2 += l * l; c++;
+        }
+      }
+      const v = c ? s2 / c - (s / c) ** 2 : 0;
+      vars.push(v);
+      if (v > best) best = v;
+    }
+  }
+  let sx = 0, sy = 0, sw = 0;
+  vars.forEach((v, i) => {
+    if (v < best * 0.25) return;
+    sx += v * ((i % T) + 0.5) / T; sy += v * (Math.floor(i / T) + 0.5) / T; sw += v;
+  });
+  return sw ? [sx / sw, sy / sw] : [0.5, 0.5];
+}
+</script>
+
 <script>
 'use strict';
 const IMG_RE = /\.(jpe?g|png|webp)$/i;
@@ -404,7 +598,10 @@ const REJECT_DIR = '_待删除';
 const SKIP_DIRS = new Set(['node_modules', '$RECYCLE.BIN', 'System Volume Information']);
 const $ = s => document.querySelector(s);
 
-const DEFAULTS = { burstGap: 2, blurRatio: 50, blurPct: 10, recursive: true, autoAdvance: true, groupView: true, tile: 190 };
+const DEFAULTS = {
+  burstGap: 2, blurRatio: 50, blurPct: 10, recursive: true, autoAdvance: true, groupView: true, tile: 190,
+  burstLabel: true, aiModel: 'Xenova/clip-vit-base-patch32', aiHost: 'auto', aiAccept: 80,
+};
 const settings = loadSettings();
 function loadSettings() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('photo-cull-settings') || '{}') }; }
@@ -419,7 +616,7 @@ const state = {
   photos: [], byPath: new Map(), sorted: [], groups: [], visible: [],
   sel: new Set(), cur: null, anchor: null, undo: [],
   total: 0, done: 0, analyzed: false, organizing: false,
-  loupe: false, loupeTok: 0, loupeUrl: null, filter: 'all',
+  loupe: false, loupeTok: 0, loupeUrl: null, filter: 'all', candidates: '',
 };
 
 /* ---------- worker pool ---------- */
@@ -519,8 +716,9 @@ function reset() {
   closeLoupe();
   Object.assign(state, {
     root: null, readonly: false, photos: [], byPath: new Map(), sorted: [], groups: [], visible: [],
-    sel: new Set(), cur: null, anchor: null, undo: [], total: 0, done: 0, analyzed: false,
+    sel: new Set(), cur: null, anchor: null, undo: [], total: 0, done: 0, analyzed: false, candidates: '',
   });
+  ai.emb = new Map();
   $('#grid').textContent = '';
   $('#banner').hidden = true;
 }
@@ -528,6 +726,7 @@ function reset() {
 async function loadPhotos(found, side) {
   const gen = state.gen;
   const recs = (side && side.photos) || {};
+  state.candidates = (side && side.candidates) || '';
   const files = [];
   for (let i = 0; i < found.length; i += 64) {
     files.push(...await Promise.all(found.slice(i, i + 64).map(f => f.file ? f.file : f.fh.getFile())));
@@ -540,11 +739,12 @@ async function loadPhotos(found, side) {
       path: f.path, name: f.name, fh: f.fh || null, parent: f.parent || null, file: f.file || null,
       size: file.size, mtime: file.lastModified, time: null, sharp: null,
       rating: 0, reject: false, label: '', thumb: null, el: null, job: null,
+      ai: null, sug: null, sugKey: '',
     };
     const r = recs[f.path];
     if (r) {
       p.rating = r.r || 0; p.reject = !!r.x; p.label = r.l || '';
-      if (r.k === keyOf(p) && r.s != null) Object.assign(p, { time: r.t ?? null, sharp: r.s, bright: r.b, clipHi: r.hi, clipLo: r.lo });
+      if (r.k === keyOf(p) && r.s != null) Object.assign(p, { time: r.t ?? null, sharp: r.s, bright: r.b, clipHi: r.hi, clipLo: r.lo, ai: r.a || null });
     }
     state.photos.push(p);
     state.byPath.set(p.path, p);
@@ -677,6 +877,86 @@ function recompute() {
       p.blurry = p.pct < settings.blurPct || (a.length > 1 && p.sharp < settings.blurRatio / 100 * grp.max);
     }
   }
+  refreshSuggestions();
+}
+
+/* ---------- category suggestions ---------- */
+const PREV_GAP = 10 * 60 * 1000;  // "same as the previous group" is only offered within 10 minutes
+const AI_SURE = 0.5;              // an AI guess below this yields to the previous group's label
+
+function groupLabel(g) {
+  const count = new Map();
+  for (const p of g.photos) if (p.label) count.set(p.label, (count.get(p.label) || 0) + 1);
+  let best = '', n = 0;
+  for (const [l, c] of count) if (c > n) { best = l; n = c; }
+  return best;
+}
+
+function groupAi(g) {
+  if (g.best && g.best.ai) return g.best.ai;
+  const p = g.photos.find(q => q.ai);
+  return p ? p.ai : null;
+}
+
+// A suggestion is never applied on its own: it shows as a dashed chip until the user accepts it.
+function refreshSuggestions() {
+  let prev = null;
+  for (const g of state.groups) {
+    const ai = groupAi(g);
+    const near = prev && capTime(g.photos[0]) - capTime(prev.photos[prev.photos.length - 1]) <= PREV_GAP;
+    g.prevLabel = near ? groupLabel(prev) : '';
+    if (ai && ai[0][1] >= AI_SURE) g.sug = { label: ai[0][0], src: 'ai', conf: ai[0][1] };
+    else if (g.prevLabel) g.sug = { label: g.prevLabel, src: 'prev' };
+    else if (ai) g.sug = { label: ai[0][0], src: 'ai', conf: ai[0][1] };
+    else g.sug = null;
+    for (const p of g.photos) {
+      const s = p.label ? null : g.sug;
+      const key = s ? `${s.src}|${s.label}|${s.conf || ''}` : '';
+      if (key === p.sugKey) continue;
+      p.sug = s; p.sugKey = key;
+      updateTile(p);
+    }
+    renderHeadSug(g);
+    prev = g;
+  }
+}
+
+const sugNote = s => s.src === 'ai' ? `AI ${Math.round(s.conf * 100)}%` : '沿用上一组';
+
+function renderHeadSug(g) {
+  if (!g.headSug) return;
+  const pending = g.sug && g.photos.some(p => !p.label);
+  g.headSug.innerHTML = pending
+    ? `建议：<b>${escapeHtml(g.sug.label)}</b>（${sugNote(g.sug)}） <button type="button" data-accept>接受</button>`
+    : '';
+}
+
+// Labelling one frame of a burst covers the rest of the burst, except frames already labelled as something else.
+function withBurst(ts) {
+  if (ts.length !== 1) return ts;
+  const p = ts[0], g = p.group;
+  if (!g || g.photos.length < 2) return ts;
+  return g.photos.filter(q => q === p || !q.label || q.label === p.label);
+}
+
+function acceptSuggestion(list) {
+  const to = new Map(list.filter(p => !p.label && p.sug).map(p => [p, p.sug.label]));
+  if (!to.size) { toast('这些照片没有待确认的分类建议'); return false; }
+  edit([...to.keys()], p => { p.label = to.get(p); });
+  return true;
+}
+
+function acceptKey() {
+  const base = targets();
+  if (!base.length) return;
+  const ts = settings.burstLabel ? withBurst(base) : base;
+  if (!acceptSuggestion(ts)) return;
+  const vis = state.visible;
+  for (let i = Math.max(...ts.map(p => vis.indexOf(p))) + 1; i < vis.length; i++) {
+    if (vis[i].label) continue;
+    state.loupe ? showInLoupe(vis[i]) : setCur(vis[i]);
+    return;
+  }
 }
 
 /* ---------- rendering ---------- */
@@ -691,6 +971,7 @@ const FILTERS = {
   blurry: ['可能模糊', p => p.blurry],
   exposure: ['曝光问题', p => p.dark || p.over],
   nolabel: ['未分类', p => !p.label],
+  sug: ['有分类建议待确认', p => !p.label && !!p.sug],
 };
 
 function currentFilter() {
@@ -775,9 +1056,15 @@ function groupHead(g, shown) {
   h.innerHTML = `<b>${g.singles ? `单张 ${n} 张` : `连拍 ${n} 张`}</b><span>${when}</span>` +
     (dir ? `<span>📁 ${escapeHtml(dir)}</span>` : '') +
     (shown < n ? `<span>（显示 ${shown} 张）</span>` : '') +
-    (g.singles ? '' : '<button type="button">选中整组</button>');
-  const btn = h.querySelector('button');
-  if (btn) btn.onclick = () => selectGroup(g.photos[0]);
+    (g.singles ? '' : '<button type="button" data-select>选中整组</button><span class="sug"></span>');
+  if (!g.singles) {
+    g.headSug = h.querySelector('.sug');
+    renderHeadSug(g);
+    h.onclick = e => {
+      if (e.target.closest('[data-select]')) selectGroup(g.photos[0]);
+      else if (e.target.closest('[data-accept]')) acceptSuggestion(g.photos);
+    };
+  }
   return h;
 }
 
@@ -808,13 +1095,15 @@ function updateTile(p) {
   if (p.dark) chips.push('<span class="chip exp">欠曝</span>');
   if (p.over) chips.push('<span class="chip exp">过曝</span>');
   if (p.label) chips.push(`<span class="chip label">${escapeHtml(p.label)}</span>`);
+  else if (p.sug) chips.push(`<span class="chip sug">？${escapeHtml(p.sug.label)}${p.sug.src === 'ai' ? ' ' + Math.round(p.sug.conf * 100) + '%' : ''}</span>`);
   if (p.error) chips.push('<span class="chip blur">无法读取</span>');
   el.querySelector('.chips').innerHTML = chips.join('');
   const bar = el.querySelector('.bar');
   bar.querySelector('i').style.width = (p.pct ?? 0) + '%';
   bar.className = 'bar' + (p.pct == null ? '' : p.pct >= 70 ? ' good' : p.blurry ? ' bad' : '');
   el.title = `${p.path}\n${p.time ? '拍摄 ' + fmtTime(p.time) + '\n' : ''}` +
-    (p.pct != null ? `清晰度 ${p.pct}/100（文件夹内排名）${p.best ? ' · 本组最佳' : ''}` : '分析中…');
+    (p.pct != null ? `清晰度 ${p.pct}/100（文件夹内排名）${p.best ? ' · 本组最佳' : ''}` : '分析中…') +
+    (!p.label && p.sug ? `\n分类建议：${p.sug.label}（${sugNote(p.sug)}），按 A 接受` : '');
 }
 
 function updateStatus() {
@@ -828,8 +1117,9 @@ function updateStatus() {
     `★ ${c(p => p.rating > 0)}`,
     `待删除 ${c(p => p.reject)}`,
     `已分类 ${c(p => p.label)}`,
+    c(p => !p.label && p.sug) ? `建议待确认 ${c(p => !p.label && p.sug)}` : '',
     `显示 ${state.visible.length}`,
-  ].join(' · ');
+  ].filter(Boolean).join(' · ');
   const right = [];
   if (state.sel.size) right.push(`已选 ${state.sel.size} 张`);
   if (state.readonly) right.push('只读模式');
@@ -912,6 +1202,7 @@ function afterEdit() {
   markDirty();
   const before = $('#labelList').children.length;
   if (allLabels().length !== before) rebuildFilterMenu();
+  refreshSuggestions();
   updateStatus();
   if (state.loupe) renderSide();
 }
@@ -959,14 +1250,37 @@ function cull(kind) {
 
 /* ---------- label dialog ---------- */
 function openLabelDialog() {
-  const ts = targets();
-  if (!ts.length) { toast('请先选中照片'); return; }
-  state.labelTargets = ts;
-  const common = ts.every(p => p.label === ts[0].label) ? ts[0].label : '';
-  $('#labelCount').textContent = `将给 ${ts.length} 张照片设置分类。`;
-  $('#labelInput').value = common;
+  const base = targets();
+  if (!base.length) { toast('请先选中照片'); return; }
+  state.labelBase = base;
+  const g = base[0].group;
+  $('#labelBurstRow').hidden = !(base.length === 1 && g && g.photos.length > 1);
+  $('#labelBurst').checked = settings.burstLabel;
+  updateLabelCount();
+  const common = base.every(p => p.label === base[0].label) ? base[0].label : '';
+  const sug = base[0].sug && base.every(p => p.sug && p.sug.label === base[0].sug.label) ? base[0].sug : null;
+  // One-click choices: the current suggestion, the other AI guesses, and the previous group's label.
+  const opts = new Map();
+  if (sug) opts.set(sug.label, sugNote(sug));
+  if (g && base.every(p => p.group === g)) {
+    for (const [l, v] of groupAi(g) || []) if (!opts.has(l)) opts.set(l, `AI ${Math.round(v * 100)}%`);
+    if (g.prevLabel && !opts.has(g.prevLabel)) opts.set(g.prevLabel, '沿用上一组');
+  }
+  $('#labelSug').innerHTML = [...opts].map(([l, note]) =>
+    `<button type="button" data-label="${escapeHtml(l)}">${escapeHtml(l)} <small class="muted">${note}</small></button>`).join('');
+  $('#labelSug').hidden = !opts.size;
+  $('#labelInput').value = common || (sug ? sug.label : '');
   $('#dlgLabel').showModal();
   $('#labelInput').select();
+}
+
+function labelTargets() {
+  const base = state.labelBase || [];
+  return !$('#labelBurstRow').hidden && $('#labelBurst').checked ? withBurst(base) : base;
+}
+
+function updateLabelCount() {
+  $('#labelCount').textContent = `将给 ${labelTargets().length} 张照片设置分类。`;
 }
 
 function sanitizeLabel(s) {
@@ -1027,6 +1341,8 @@ function renderSide() {
   if (!p) { side.textContent = ''; return; }
   const g = p.group, gi = g ? g.photos.indexOf(p) + 1 : 0;
   const flags = [p.best && '本组最佳', p.blurry && '可能模糊', p.dark && '欠曝', p.over && '过曝'].filter(Boolean).join('、') || '无';
+  const sug = !p.label && p.sug ? p.sug : null;
+  const guesses = g && groupAi(g);
   side.innerHTML = `
     <h2>${escapeHtml(p.name)}</h2>
     <div class="muted">${escapeHtml(dirOf(p.path) || '（根目录）')}</div>
@@ -1034,9 +1350,12 @@ function renderSide() {
     <div class="actions">
       <button type="button" data-act="reject" class="${p.reject ? 'danger' : ''}">${p.reject ? '已标记待删除' : '标记待删除 (X)'}</button>
       <button type="button" data-act="label">分类 (T)</button>
+      ${sug ? '<button type="button" data-act="accept">接受建议 (A)</button>' : ''}
     </div>
     <dl>
       <dt>分类</dt><dd>${p.label ? escapeHtml(p.label) : '<span class="muted">未分类</span>'}</dd>
+      ${sug ? `<dt>建议</dt><dd>${escapeHtml(sug.label)}（${sugNote(sug)}）</dd>` : ''}
+      ${guesses ? `<dt>AI 识别</dt><dd>${guesses.map(([l, v]) => `${escapeHtml(l)} ${Math.round(v * 100)}%`).join('<br>')}</dd>` : ''}
       <dt>拍摄时间</dt><dd>${p.time ? fmtTime(p.time) : '<span class="muted">无 EXIF，用修改时间</span>'}</dd>
       <dt>清晰度</dt><dd>${p.pct != null ? `${p.pct}/100` : '分析中…'}</dd>
       <dt>亮度</dt><dd>${p.bright != null ? Math.round(p.bright) + '/255' : '—'}</dd>
@@ -1044,7 +1363,204 @@ function renderSide() {
       <dt>自动提示</dt><dd>${flags}</dd>
       <dt>位置</dt><dd>${state.visible.indexOf(p) + 1} / ${state.visible.length}</dd>
     </dl>
-    <div class="hint">1–5 打星 · 0 清除 · X 待删除 · T 分类<br>← → 切换 · B 跳到本组最佳<br>Z 或单击图片：100% 查看对焦 · Esc 返回</div>`;
+    <div class="hint">1–5 打星 · 0 清除 · X 待删除 · T 分类 · A 接受建议<br>← → 切换 · B 跳到本组最佳<br>Z 或单击图片：100% 查看对焦 · Esc 返回</div>`;
+}
+
+/* ---------- optional AI suggestions: zero-shot CLIP, run locally with Transformers.js ---------- */
+const AI_LIBS = [
+  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/',
+  'https://unpkg.com/@huggingface/transformers@3.8.1/dist/',
+];
+const AI_HOSTS = { hf: 'https://huggingface.co/', mirror: 'https://hf-mirror.com/' };
+const AI_PROMPT = 'a photo of {}';
+const ai = {
+  worker: null, lib: null, loaded: null, busy: false, cancel: false,
+  seq: 0, pending: new Map(), files: new Map(),
+  emb: new Map(),   // photo -> image embedding, kept for the session so a new candidate list re-scores instantly
+  crop: 0.7,        // side fraction of the crop taken around the in-focus area
+  // 8-bit quantised CLIP text weights wreck zero-shot accuracy (12/27 vs 27/27 groups in testing), so use fp16.
+  dtype: { text: 'fp16', vision: 'fp16' },
+  device: navigator.gpu ? 'webgpu' : 'wasm',
+  used: '',         // device the loaded model actually runs on
+};
+
+function aiNote(text, err) {
+  const el = $('#aiStatus');
+  el.textContent = text;
+  el.classList.toggle('err', !!err);
+}
+
+function aiStatus(text, frac) {
+  aiNote(text);
+  progress(frac, text);
+}
+
+function aiCall(msg) {
+  return new Promise((res, rej) => {
+    const id = ++ai.seq;
+    ai.pending.set(id, { res, rej });
+    ai.worker.postMessage({ ...msg, id });
+  });
+}
+
+function aiStartWorker() {
+  if (ai.worker) return;
+  const url = URL.createObjectURL(new Blob([$('#ai-worker-src').textContent], { type: 'text/javascript' }));
+  ai.worker = new Worker(url, { type: 'module' });
+  ai.worker.onmessage = e => {
+    const d = e.data;
+    if (d.type === 'progress') {
+      ai.files.set(d.file, [d.loaded, d.total]);
+      let a = 0, b = 0;
+      for (const [l, t] of ai.files.values()) { a += l; b += t; }
+      const mb = v => Math.round(v / 1048576);
+      aiStatus(`正在下载模型 ${mb(a)} / ${mb(b)} MB（只需下载一次）`, b ? a / b : 0);
+      return;
+    }
+    const job = ai.pending.get(d.id);
+    ai.pending.delete(d.id);
+    if (job) d.error ? job.rej(new Error(d.error)) : job.res(d);
+  };
+  ai.worker.onerror = e => {
+    for (const j of ai.pending.values()) j.rej(new Error(e.message || 'AI 模块加载失败'));
+    ai.pending.clear();
+  };
+}
+
+async function reachable(url) {
+  try { return (await fetch(url, { signal: AbortSignal.timeout(8000) })).ok; }
+  catch (e) { return false; }
+}
+
+async function aiLoad(model, hostPref) {
+  if (ai.loaded === model) return;
+  aiStatus('正在连接模型下载源…', 0);
+  // A Transformers.js CLIP repo has config.json; an "encoder pair" repo (BioCLIP) has manifest.json instead.
+  let host = null, manifest = null;
+  for (const h of hostPref === 'auto' ? ['hf', 'mirror'] : [hostPref]) {
+    const base = `${AI_HOSTS[h]}${model}/resolve/main/`;
+    if (await reachable(base + 'config.json')) { host = AI_HOSTS[h]; break; }
+    try {
+      const r = await fetch(base + 'manifest.json', { signal: AbortSignal.timeout(8000) });
+      const mf = r.ok ? await r.json() : null;
+      if (mf && mf.files && mf.preprocess) { host = AI_HOSTS[h]; manifest = mf; break; }
+    } catch (e) { /* try the next host */ }
+  }
+  if (!host) throw new Error('连接不上模型下载源，或者模型 ID 不存在。可以换一个下载源再试。');
+  if (!ai.lib) {
+    for (const l of AI_LIBS) if (await reachable(l + 'transformers.min.js')) { ai.lib = l; break; }
+    if (!ai.lib) throw new Error('连接不上 jsdelivr 和 unpkg，无法加载 Transformers.js。');
+  }
+  aiStartWorker();
+  ai.files.clear();
+  aiStatus('正在加载模型…', 0);
+  ai.used = (await aiCall({ type: 'load', lib: ai.lib, host, model, manifest, dtype: ai.dtype, device: ai.device })).device;
+  ai.loaded = model;
+  ai.emb = new Map();
+}
+
+function parseCandidates(text) {
+  const out = [];
+  for (const line of text.split(/\r?\n/)) {
+    const i = line.search(/[=＝]/);
+    const label = sanitizeLabel(i < 0 ? line : line.slice(0, i));
+    const prompt = (i < 0 ? line : line.slice(i + 1)).trim() || label;
+    if (label) out.push({ label, prompt });
+  }
+  return out;
+}
+
+// One frame stands in for a whole burst: its best frame, or the sharpest one that decoded.
+function repOf(g) {
+  if (g.best) return g.best;
+  return g.photos.reduce((a, p) => (!p.error && (!a || p.sharp > a.sharp) ? p : a), null);
+}
+
+function scoreAll(cands, T, d) {
+  for (const [p, e] of ai.emb) {
+    const logits = cands.map((c, i) => { let s = 0; for (let j = 0; j < d; j++) s += e[j] * T[i * d + j]; return 100 * s; });
+    const top = Math.max(...logits), ex = logits.map(v => Math.exp(v - top)), sum = ex.reduce((a, b) => a + b, 0);
+    const by = new Map();
+    cands.forEach((c, i) => by.set(c.label, (by.get(c.label) || 0) + ex[i] / sum));
+    p.ai = [...by].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, v]) => [l, Math.round(v * 1000) / 1000]);
+  }
+}
+
+async function runAi() {
+  if (ai.busy) { ai.cancel = true; return; }
+  if (!state.analyzed) { aiNote('请等自动分析完成后再开始。', true); return; }
+  const cands = parseCandidates($('#aiCands').value);
+  if (new Set(cands.map(c => c.label)).size < 2) { aiNote('请至少填写 2 个候选分类。', true); return; }
+  const model = $('#aiModel').value === 'custom' ? $('#aiModelId').value.trim() : $('#aiModel').value;
+  if (!model) { aiNote('请填写模型 ID。', true); return; }
+  state.candidates = $('#aiCands').value;
+  try { localStorage.setItem('photo-cull-candidates', state.candidates); } catch (e) { /* private mode */ }
+  settings.aiModel = model; settings.aiHost = $('#aiHost').value;
+  saveSettings();
+  markDirty();
+
+  const gen = state.gen;
+  ai.busy = true; ai.cancel = false;
+  $('#aiRun').textContent = '取消';
+  let failed = 0;
+  try {
+    await aiLoad(model, settings.aiHost);
+    const reps = state.groups.filter(g => g.photos.some(p => !p.label)).map(repOf).filter(p => p && !ai.emb.has(p));
+    for (let i = 0; i < reps.length && !ai.cancel && gen === state.gen; i++) {
+      aiStatus(`正在识别 ${i + 1} / ${reps.length}`, i / reps.length);
+      try { ai.emb.set(reps[i], (await aiCall({ type: 'image', file: await getFile(reps[i]), crop: ai.crop })).emb); }
+      catch (e) { failed++; console.error(e); }
+    }
+    if (gen !== state.gen) return;
+    const t = await aiCall({ type: 'text', texts: cands.map(c => AI_PROMPT.replace('{}', c.prompt)) });
+    scoreAll(cands, t.emb, t.dim);
+    refreshSuggestions();
+    markDirty();
+    updateStatus();
+    progress(null);
+    aiSummary((ai.cancel ? '已取消，已识别的部分保留。' : '识别完成。') + (failed ? `${failed} 张照片识别失败。` : ''));
+  } catch (e) {
+    progress(null);
+    aiNote('出错了：' + e.message, true);
+  } finally {
+    ai.busy = false;
+    $('#aiRun').textContent = '开始识别';
+  }
+}
+
+const aiPending = thr => state.groups.filter(g => g.sug && g.sug.src === 'ai' && g.sug.conf >= thr && g.photos.some(p => !p.label));
+const aiThreshold = () => Math.min(100, Math.max(30, parseFloat($('#aiThr').value) || DEFAULTS.aiAccept));
+
+function aiSummary(prefix) {
+  const all = aiPending(0).length, thr = aiThreshold();
+  $('#aiStatus').classList.remove('err');
+  $('#aiStatus').textContent = (prefix || '') + (all
+    ? `现在有 ${all} 组照片带 AI 建议待确认，其中 ${aiPending(thr / 100).length} 组置信度不低于 ${thr}%。`
+    : (prefix ? '' : '还没有 AI 建议。'));
+}
+
+function acceptConfident() {
+  const thr = aiThreshold();
+  settings.aiAccept = thr;
+  saveSettings();
+  const list = aiPending(thr / 100).flatMap(g => g.photos.filter(p => !p.label));
+  if (!list.length) { aiSummary(`没有置信度达到 ${thr}% 的建议。`); return; }
+  acceptSuggestion(list);
+  aiSummary(`已接受 ${list.length} 张照片的建议（关闭后可按 Ctrl+Z 撤销）。`);
+}
+
+function openAiDialog() {
+  let text = state.candidates;
+  if (!text) { try { text = localStorage.getItem('photo-cull-candidates') || ''; } catch (e) { /* private mode */ } }
+  $('#aiCands').value = text || allLabels().join('\n');
+  const known = [...$('#aiModel').options].some(o => o.value === settings.aiModel);
+  $('#aiModel').value = known ? settings.aiModel : 'custom';
+  $('#aiModelId').value = known ? '' : settings.aiModel;
+  $('#aiModelIdRow').hidden = known;
+  $('#aiHost').value = settings.aiHost;
+  $('#aiThr').value = settings.aiAccept;
+  if (!ai.busy) aiSummary();
+  $('#dlgAi').showModal();
 }
 
 /* ---------- organize ---------- */
@@ -1215,10 +1731,13 @@ async function saveSidecar() {
     if (p.rating) r.r = p.rating;
     if (p.reject) r.x = 1;
     if (p.label) r.l = p.label;
+    if (p.ai) r.a = p.ai;
     photos[p.path] = r;
   }
+  const data = { app: 'photo-cull', version: 1, saved: new Date().toISOString(), photos };
+  if (state.candidates) data.candidates = state.candidates;
   try {
-    await writeJson(SIDECAR, { app: 'photo-cull', version: 1, saved: new Date().toISOString(), photos });
+    await writeJson(SIDECAR, data);
     state.savedAt = Date.now();
     updateStatus();
   } catch (e) {
@@ -1227,11 +1746,12 @@ async function saveSidecar() {
 }
 
 function exportCsv() {
-  const head = ['文件', '拍摄时间', '清晰度(0-100)', '清晰度原始值', '亮度', '连拍组', '本组最佳', '可能模糊', '欠曝', '过曝', '星级', '待删除', '分类'];
+  const head = ['文件', '拍摄时间', '清晰度(0-100)', '清晰度原始值', '亮度', '连拍组', '本组最佳', '可能模糊', '欠曝', '过曝', '星级', '待删除', '分类', 'AI 建议'];
   const rows = (state.analyzed ? state.sorted : state.photos).map(p => [
     p.path, p.time ? fmtTime(p.time) : '', p.pct ?? '', p.sharp != null ? Math.round(p.sharp) : '',
     p.bright != null ? Math.round(p.bright) : '', p.group ? p.group.idx : '', p.best ? '是' : '', p.blurry ? '是' : '',
     p.dark ? '是' : '', p.over ? '是' : '', p.rating || '', p.reject ? '是' : '', p.label,
+    p.group && groupAi(p.group) ? groupAi(p.group).map(([l, v]) => `${l} ${Math.round(v * 100)}%`).join(' / ') : '',
   ]);
   const csv = '﻿' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
   const a = document.createElement('a');
@@ -1269,7 +1789,7 @@ function progress(frac, text) {
   el.querySelector('.progress-text').textContent = text || '';
 }
 function enableUi(on) {
-  for (const id of ['#filter', '#btnCull', '#btnExport']) $(id).disabled = !on;
+  for (const id of ['#filter', '#btnCull', '#btnExport', '#btnAi']) $(id).disabled = !on;
   $('#btnOrganize').disabled = !on || state.readonly;
 }
 const anyDialogOpen = () => [...document.querySelectorAll('dialog')].some(d => d.open);
@@ -1320,6 +1840,7 @@ $('#btnSettings').onclick = () => {
   $('#setPct').value = settings.blurPct;
   $('#setRecursive').checked = settings.recursive;
   $('#setAdvance').checked = settings.autoAdvance;
+  $('#setBurstLabel').checked = settings.burstLabel;
   $('#dlgSettings').showModal();
 };
 $('#setCancel').onclick = () => $('#dlgSettings').close();
@@ -1330,17 +1851,39 @@ $('#setOk').onclick = () => {
   settings.blurPct = num('#setPct', 0, 50, DEFAULTS.blurPct);
   settings.recursive = $('#setRecursive').checked;
   settings.autoAdvance = $('#setAdvance').checked;
+  settings.burstLabel = $('#setBurstLabel').checked;
   saveSettings();
   $('#dlgSettings').close();
   if (state.analyzed) { recompute(); state.photos.forEach(updateTile); arrange(); }
 };
 
+$('#labelBurst').onchange = e => { settings.burstLabel = e.target.checked; saveSettings(); updateLabelCount(); };
+$('#labelSug').onclick = e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  $('#labelInput').value = b.dataset.label;
+  $('#labelInput').focus();
+};
 $('#labelForm').onsubmit = () => {
-  const ts = state.labelTargets || [];
+  const ts = labelTargets();
   const v = sanitizeLabel($('#labelInput').value);
   edit(ts, p => { p.label = v; }, v ? `已把 ${ts.length} 张照片分类为“${v}”` : `已清除 ${ts.length} 张照片的分类`);
 };
 $('#labelCancel').onclick = () => $('#dlgLabel').close();
+
+$('#btnAi').onclick = openAiDialog;
+$('#aiRun').onclick = runAi;
+$('#aiClose').onclick = () => $('#dlgAi').close();
+$('#aiAccept').onclick = acceptConfident;
+$('#aiThr').onchange = () => { if (!ai.busy) aiSummary(); };
+$('#aiModel').onchange = e => { $('#aiModelIdRow').hidden = e.target.value !== 'custom'; };
+$('#aiFill').onclick = () => {
+  const box = $('#aiCands');
+  const have = new Set(parseCandidates(box.value).map(c => c.label));
+  const add = allLabels().filter(l => !have.has(l));
+  if (!add.length) { aiSummary('已有的分类名都在列表里了。'); return; }
+  box.value = (box.value.trim() ? box.value.replace(/\s+$/, '') + '\n' : '') + add.join('\n');
+};
 
 $('#grid').addEventListener('click', e => {
   const el = e.target.closest('.tile');
@@ -1362,6 +1905,7 @@ $('#loupeSide').onclick = e => {
   if (b.dataset.rate) { const n = +b.dataset.rate; edit([state.cur], p => { p.rating = p.rating === n ? 0 : n; if (p.rating) p.reject = false; }); }
   if (b.dataset.act === 'reject') toggleReject();
   if (b.dataset.act === 'label') openLabelDialog();
+  if (b.dataset.act === 'accept') acceptKey();
 };
 
 document.addEventListener('keydown', e => {
@@ -1393,6 +1937,7 @@ document.addEventListener('keydown', e => {
   if (k === '0' || k === '`') { clearMarks(); return; }
   if (k === 'x' || k === 'X' || k === 'Delete' || k === 'Backspace') { e.preventDefault(); toggleReject(); return; }
   if (k === 't' || k === 'T') { e.preventDefault(); openLabelDialog(); return; }
+  if (k === 'a' || k === 'A') { acceptKey(); return; }
   if ((k === 'g' || k === 'G') && !state.loupe) { selectGroup(state.cur); return; }
   if ((k === 'b' || k === 'B') && state.cur && state.cur.group && state.cur.group.best) {
     const b = state.cur.group.best;
@@ -1406,7 +1951,7 @@ window.addEventListener('beforeunload', e => {
 });
 
 // Test/automation hook: open any FileSystemDirectoryHandle (e.g. one from the Origin Private File System).
-window.photoCull = { openHandle, state, settings };
+window.photoCull = { openHandle, state, settings, ai };
 </script>
 </body>
 </html>
