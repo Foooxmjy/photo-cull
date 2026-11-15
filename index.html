@@ -135,6 +135,7 @@ dialog .inline input[type=number] { width: 64px; }
 .rv-opts button { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; font-size: 15px; white-space: normal; }
 .rv-opts button small { margin-left: auto; color: var(--muted); white-space: nowrap; }
 .rv-opts button.on { border-color: var(--accent); background: rgba(76,141,255,.18); }
+.rv-opts button small.rv-en { margin: 0; color: var(--muted); font-size: 12px; white-space: normal; }
 .rv-hint { font-size: 12px; line-height: 1.9; margin-top: 16px; }
 @media (max-width: 760px) {
   .rv { grid-template-columns: 1fr; grid-template-rows: 40vh auto; height: auto; max-height: calc(100vh - 32px); }
@@ -224,7 +225,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
       <button data-cull="clear">清除全部待删除标记</button>
     </div>
   </div>
-  <button id="btnAi" disabled title="可选：用本机运行的 AI 模型给未分类的照片提供分类建议">AI 建议</button>
+  <button id="btnAi" disabled title="可选：本机运行的 AI 先分大类（有鸟就归为鸟），再识别鸟的种类">AI 识别</button>
   <button id="btnOrganize" disabled>整理文件</button>
   <button id="btnExport" disabled>导出 CSV</button>
   <button id="btnSettings" title="设置">设置</button>
@@ -238,7 +239,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
     <ul>
       <li><b>自动打分</b>：计算清晰度和曝光，把连拍自动归成一组，标出每组最清楚的一张，提示模糊和曝光问题的照片。</li>
       <li><b>手动评级</b>：键盘 <kbd>1</kbd>–<kbd>5</kbd> 打星，<kbd>X</kbd> 标记待删除，<kbd>T</kbd> 设置分类，<kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销。</li>
-      <li><b>分类建议</b>：给一张照片设置分类，整组连拍自动套用；下一组默认沿用上一组的分类，按 <kbd>A</kbd> 确认。还可以打开可选的 <b>AI 建议</b>，让本机运行的 CLIP 模型先猜一遍。</li>
+      <li><b>分类建议</b>：给一张照片设置分类，整组连拍自动套用；下一组默认沿用上一组的分类，按 <kbd>A</kbd> 确认。还可以打开可选的 <b>AI 识别</b>：本机运行的模型先分大类，有鸟就归为“鸟”，再从全球约 1.08 万种鸟里给出 3 个备选。</li>
       <li><b>整理文件</b>：按分类移到子文件夹，待删除的移到 <code>_待删除</code>，不会真的删除，可以一键撤销。</li>
       <li><b>自动保存</b>：评级保存在文件夹里的 <code>photo-cull.json</code>，下次打开同一个文件夹会接着用。</li>
     </ul>
@@ -280,6 +281,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 <dialog id="dlgOrganize">
   <h3>整理文件</h3>
   <label class="check"><input type="checkbox" id="orgLabel" checked><span>有分类的照片移到以分类命名的子文件夹</span></label>
+  <label class="check"><input type="checkbox" id="orgBird" checked><span>AI 认出是鸟的，放进“鸟”文件夹下的物种子文件夹（鸟/物种名）</span></label>
   <label class="check"><input type="checkbox" id="orgReject" checked><span>待删除的照片移到 <code>_待删除</code> 文件夹（不会真正删除）</span></label>
   <div class="plan" id="orgPlan"></div>
   <p class="muted" id="orgNote"></p>
@@ -292,20 +294,14 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
 </dialog>
 
 <dialog id="dlgAi">
-  <h3>AI 分类建议（可选）</h3>
-  <p class="muted">用 CLIP 或 BioCLIP 模型在你的电脑上识别<b>未分类</b>的照片，每组连拍只识别最清楚的一张。识别完后逐组给出 3 个备选，由你选一个，或者都不选、手动输入。照片不会上传；第一次使用要从 Hugging Face 下载模型（约 300 MB）。</p>
-  <label class="check"><input type="checkbox" id="aiVocGeneral"><span>使用内置通用词表（常见动物、植物、风景等大类，<span id="aiVocGeneralN"></span> 项）</span></label>
-  <label class="check"><input type="checkbox" id="aiVocSa"><span>使用内置南部非洲物种词表（常见鸟类、兽类等，精确到种，<span id="aiVocSaN"></span> 项）</span></label>
-  <label class="field"><span>自定义候选分类（可选），每行一个，和内置词表一起参与识别。模型只懂英文，中文分类请写成“中文名 = English name”，例如“非洲企鹅 = African penguin”。</span>
-    <textarea id="aiCands" spellcheck="false" placeholder="可以留空，直接用内置词表识别"></textarea>
-  </label>
-  <div class="inline"><button type="button" id="aiFill">填入已有的分类名</button><button type="button" id="aiEditVocab" title="把勾选的内置词表复制到上面的框里，方便修改中文名或删掉不需要的项">编辑内置词表</button></div>
+  <h3>AI 识别（本机运行，免费）</h3>
+  <p class="muted">给<b>未分类</b>的照片先分大类：有鸟就归为“鸟”，没有鸟再判断兽类、爬行类、昆虫、植物等。是鸟的再识别到种，候选覆盖全球约 1.08 万种鸟，中文名来自 IOC 世界鸟类名录。每组连拍只识别最清楚的一张，识别完逐组给出 3 个备选，由你选一个，或者都不对就手动输入。你确认过的组越多，越能认出后面同样的鸟。</p>
+  <p class="muted">全部在你的电脑上运行，照片不会上传。第一次使用要下载模型：有显卡加速（WebGPU）时约 650 MB，没有时约 350 MB，而且慢很多。</p>
   <div class="two">
-    <label class="field"><span>模型</span>
-      <select id="aiModel">
-        <option value="jsteinshouer/trail-bingo-bioclip-onnx">BioCLIP（动植物识别更准，约 300 MB）</option>
-        <option value="Xenova/clip-vit-base-patch32">CLIP ViT-B/32（通用，风景人物更好，约 300 MB）</option>
-        <option value="custom">自定义模型 ID…</option>
+    <label class="field"><span>拍摄地区（优先考虑当地的鸟）</span>
+      <select id="aiRegion">
+        <option value="sa">南部非洲</option>
+        <option value="all">全球（不偏向任何地区）</option>
       </select>
     </label>
     <label class="field"><span>模型下载源</span>
@@ -316,8 +312,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-w
       </select>
     </label>
   </div>
-  <label class="field" id="aiModelIdRow" hidden><span>Hugging Face 上 Transformers.js 格式的 CLIP 模型 ID（需要带 fp16 权重）</span>
-    <input type="text" id="aiModelId" placeholder="例如 Xenova/clip-vit-large-patch14" autocomplete="off"></label>
+  <label class="check"><input type="checkbox" id="aiRedo"><span>重新识别已经识别过的组（换了拍摄地区后用）</span></label>
   <p class="ai-status" id="aiStatus"></p>
   <div class="row">
     <span class="inline"><button type="button" id="aiAccept">接受高置信度建议</button><span class="muted">置信度 ≥</span><input type="number" id="aiThr" min="30" max="100" step="5"><span class="muted">%</span></span>
@@ -489,16 +484,49 @@ function parseTiffTime(v, t) {
 }
 </script>
 
-<!-- Optional AI worker (module). Nothing here runs, and nothing is downloaded, until the user starts "AI 建议". -->
-<script id="ai-worker-src" type="text/plain">
-let tf = null, m = null;
+<!-- AI workers (modules). Nothing here runs, and nothing is downloaded, until the user starts "AI 识别".
+     The detector and the BioCLIP 2 image encoder live in separate workers: once ONNX Runtime has used WebGPU in a
+     worker, the detector's wasm session there breaks (its MaxPool is not supported on WebGPU). -->
+<script id="vision-worker-src" type="text/plain">
+// Model files run to hundreds of MB, more than Cache Storage takes in one entry on some machines, so they are
+// cached in the origin-private file system. Written under a temporary name first, so an interrupted download
+// never leaves a truncated model behind.
+const modelCache = {
+  async dir() { return (await navigator.storage.getDirectory()).getDirectoryHandle('photo-cull-models', { create: true }); },
+  name(key) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (const ch of String(key)) { const c = ch.charCodeAt(0); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+  },
+  async match(key) {
+    try {
+      const f = await (await (await this.dir()).getFileHandle(this.name(key))).getFile();
+      return f.size ? new Response(f, { headers: { 'content-length': String(f.size) } }) : undefined;
+    } catch (e) { return undefined; }
+  },
+  async put(key, response) {
+    try {
+      const buf = new Uint8Array(await response.arrayBuffer()), dir = await this.dir(), name = this.name(key);
+      const fh = await dir.getFileHandle(name + '.part', { create: true });
+      const h = await fh.createSyncAccessHandle();
+      h.truncate(0); h.write(buf, { at: 0 }); h.flush(); h.close();
+      await fh.move(name);
+    } catch (e) { /* caching is best effort */ }
+  },
+};
+let tf = null, vision = null;
+const MEAN = [0.48145466, 0.4578275, 0.40821073], STD = [0.26862954, 0.26130258, 0.27577711];
 
 self.onmessage = async (e) => {
   const q = e.data;
   try {
     if (q.type === 'load') self.postMessage({ id: q.id, device: await load(q) });
-    else if (q.type === 'text') self.postMessage({ id: q.id, ...(await embedText(q.texts)) });
-    else if (q.type === 'image') { const emb = await embedImage(q.file, q.crop); self.postMessage({ id: q.id, emb }, [emb.buffer]); }
+    else if (q.type === 'embed') {
+      const out = await embedPhoto(q.file, q.box);
+      self.postMessage({ id: q.id, ...out }, [out.full.buffer, ...(out.crop ? [out.crop.buffer] : [])]);
+    }
   } catch (err) {
     self.postMessage({ id: q.id, error: String(err && err.message || err) });
   }
@@ -509,529 +537,137 @@ async function load(q) {
     tf = await import(q.lib + 'transformers.min.js');
     tf.env.allowLocalModels = false;
     tf.env.backends.onnx.wasm.wasmPaths = q.lib;
+    tf.env.backends.onnx.logLevel = 'error';  // ONNX Runtime's graph-optimiser warnings are harmless noise
+    tf.env.useBrowserCache = false;
+    tf.env.useCustomCache = true;
+    tf.env.customCache = modelCache;
   }
   tf.env.remoteHost = q.host;
   const progress_callback = p => {
     if (p.status === 'progress' && p.total) self.postMessage({ type: 'progress', file: p.file, loaded: p.loaded, total: p.total });
   };
-  const tok = await tf.AutoTokenizer.from_pretrained(q.model, { progress_callback });
-  try {
-    await build(q, q.device, tok, progress_callback);
-    return q.device;
-  } catch (err) {
-    if (q.device === 'wasm') throw err;
-    await build(q, 'wasm', tok, progress_callback);  // WebGPU is faster but not reliable on every machine
-    return 'wasm';
-  }
-}
-
-async function build(q, device, tok, progress_callback) {
-  if (q.manifest) {
-    // "Encoder pair" repos (e.g. the BioCLIP export): two plain ONNX files plus a manifest.json, no config.json.
-    const mf = q.manifest, files = mf.files.fp16 || mf.files.fp32, pp = mf.preprocess;
-    const encoder = file => tf.PreTrainedModel.from_pretrained(q.model, {
-      config: { model_type: 'custom' }, subfolder: '', model_file_name: file.replace(/\.onnx$/, ''),
-      dtype: 'fp32', device, progress_callback,
-    });
-    m = {
-      tok, ctx: mf.contextLength,
-      proc: new tf.CLIPImageProcessor({
-        do_resize: true, size: { shortest_edge: pp.size }, resample: 3,
-        do_center_crop: true, crop_size: { height: pp.size, width: pp.size },
-        do_rescale: true, rescale_factor: 1 / 255, do_normalize: true, image_mean: pp.mean, image_std: pp.std,
-        do_convert_rgb: true,
-      }),
-      text: await encoder(files.text),
-      vision: await encoder(files.image),
-    };
-    return;
-  }
-  const opts = part => ({ dtype: q.dtype[part], device, progress_callback });
-  m = {
-    tok,
-    proc: await tf.AutoProcessor.from_pretrained(q.model, { progress_callback }),
-    text: await tf.CLIPTextModelWithProjection.from_pretrained(q.model, opts('text')),
-    vision: await tf.CLIPVisionModelWithProjection.from_pretrained(q.model, opts('vision')),
-  };
-}
-
-// The embedding is "text_embeds" / "image_embeds" for Transformers.js CLIP models and the only output otherwise.
-const firstOutput = (out, name) => out[name] || Object.values(out)[0];
-
-// L2-normalise each row so a dot product is the cosine similarity.
-function unit(t) {
-  const [n, d] = t.dims, out = new Float32Array(t.data);
-  for (let i = 0; i < n; i++) {
-    let s = 0;
-    for (let j = 0; j < d; j++) s += out[i * d + j] ** 2;
-    s = Math.sqrt(s) || 1;
-    for (let j = 0; j < d; j++) out[i * d + j] /= s;
-  }
-  return out;
-}
-
-async function embedText(texts) {
-  const pad = m.ctx ? { padding: 'max_length', max_length: m.ctx, truncation: true } : { padding: true, truncation: true };
-  const t = firstOutput(await m.text(m.tok(texts, pad)), 'text_embeds');
-  return { emb: unit(t), dim: t.dims[1] };
-}
-
-// Wildlife subjects are often small in the frame, so classify a crop around the in-focus area.
-async function embedImage(file, crop) {
-  const bmp = await createImageBitmap(file, { resizeWidth: 1024, resizeQuality: 'medium' });
-  const W = bmp.width, H = bmp.height;
-  const full = new OffscreenCanvas(W, H);
-  const fg = full.getContext('2d', { willReadFrequently: true });
-  fg.drawImage(bmp, 0, 0);
-  bmp.close();
-  let x = 0, y = 0, w = W, h = H;
-  if (crop < 1) {
-    const [cx, cy] = focusPoint(fg.getImageData(0, 0, W, H).data, W, H);
-    w = Math.round(W * crop); h = Math.round(H * crop);
-    x = Math.round(Math.min(W - w, Math.max(0, cx * W - w / 2)));
-    y = Math.round(Math.min(H - h, Math.max(0, cy * H - h / 2)));
-  }
-  const img = new tf.RawImage(fg.getImageData(x, y, w, h).data, w, h, 4);
-  return unit(firstOutput(await m.vision(await m.proc(img)), 'image_embeds'));
-}
-
-// Centre of the sharpest tiles (same 10x10 Laplacian-variance grid as the sharpness score).
-function focusPoint(d, W, H) {
-  const gray = new Float32Array(W * H);
-  for (let i = 0, p = 0; i < gray.length; i++, p += 4) gray[i] = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
-  const T = 10, tw = Math.floor(W / T), th = Math.floor(H / T), vars = [];
-  let best = 0;
-  for (let ty = 0; ty < T; ty++) {
-    for (let tx = 0; tx < T; tx++) {
-      let s = 0, s2 = 0, c = 0;
-      const y0 = Math.max(1, ty * th), y1 = Math.min(H - 1, (ty + 1) * th);
-      const x0 = Math.max(1, tx * tw), x1 = Math.min(W - 1, (tx + 1) * tw);
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0, i = y * W + x0; x < x1; x++, i++) {
-          const l = Math.abs(4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - W] - gray[i + W]);
-          s += l; s2 += l * l; c++;
-        }
-      }
-      const v = c ? s2 / c - (s / c) ** 2 : 0;
-      vars.push(v);
-      if (v > best) best = v;
+  // Try the fp16 model on the GPU first; fall back to the int8 model on the CPU.
+  for (let i = 0; i < q.options.length; i++) {
+    const o = q.options[i];
+    try {
+      vision = await tf.PreTrainedModel.from_pretrained(o.repo, {
+        config: { model_type: 'custom' }, subfolder: o.subfolder, model_file_name: o.file,
+        dtype: 'fp32', device: o.device, progress_callback,
+      });
+      return o.device;
+    } catch (err) {
+      if (i === q.options.length - 1) throw err;
     }
   }
-  let sx = 0, sy = 0, sw = 0;
-  vars.forEach((v, i) => {
-    if (v < best * 0.25) return;
-    sx += v * ((i % T) + 0.5) / T; sy += v * (Math.floor(i / T) + 0.5) / T; sw += v;
-  });
-  return sw ? [sx / sw, sy / sw] : [0.5, 0.5];
+}
+
+// CLIP preprocessing: shortest side to 224, centre crop, normalise, NCHW.
+function tensorOf(src, sx, sy, sw, sh) {
+  const S = 224, sc = S / Math.min(sw, sh);
+  const w = Math.round(sw * sc), h = Math.round(sh * sc);
+  const c = new OffscreenCanvas(S, S), g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, sx, sy, sw, sh, (S - w) / 2, (S - h) / 2, w, h);
+  const d = g.getImageData(0, 0, S, S).data, out = new Float32Array(3 * S * S);
+  for (let i = 0, p = 0; i < S * S; i++, p += 4) for (let k = 0; k < 3; k++) out[k * S * S + i] = (d[p + k] / 255 - MEAN[k]) / STD[k];
+  return new tf.Tensor('float32', out, [1, 3, S, S]);
+}
+
+async function embedOne(t) {
+  const out = await vision({ pixel_values: t });
+  const e = Float32Array.from(Object.values(out)[0].data);
+  let n = 0;
+  for (const v of e) n += v * v;
+  n = Math.sqrt(n) || 1;
+  for (let j = 0; j < e.length; j++) e[j] /= n;
+  return e;
+}
+
+// Embeds the whole frame and, when the detector found a bird, a square crop around it (25% margin).
+async function embedPhoto(file, box) {
+  const bmp = await createImageBitmap(file, { resizeWidth: 1600, resizeQuality: 'high' });
+  const W = bmp.width, H = bmp.height;
+  const full = await embedOne(tensorOf(bmp, 0, 0, W, H));
+  let crop = null;
+  if (box) {
+    const [x0, y0, x1, y1] = box.map(v => Math.min(1, Math.max(0, v)));
+    const s = Math.min(Math.max(Math.max((x1 - x0) * W, (y1 - y0) * H) * 1.25, 64), Math.min(W, H));
+    const cx = (x0 + x1) / 2 * W, cy = (y0 + y1) / 2 * H;
+    crop = await embedOne(tensorOf(bmp, Math.max(0, Math.min(W - s, cx - s / 2)), Math.max(0, Math.min(H - s, cy - s / 2)), s, s));
+  }
+  bmp.close();
+  return { full, crop };
 }
 </script>
 
-<!-- Built-in vocabularies for AI suggestions, one "中文名 = English prompt" per line (same format as the custom list). -->
-<script id="vocab-general" type="text/plain">
-企鹅 = penguin
-鸵鸟 = ostrich
-鸸鹋 = emu
-鸭 = duck
-雁 = goose
-天鹅 = swan
-䴙䴘 = grebe
-鸬鹚 = cormorant
-鹈鹕 = pelican
-鲣鸟 = gannet
-军舰鸟 = frigatebird
-信天翁 = albatross
-海鸥 = seagull
-燕鸥 = tern
-海鹦 = puffin
-鹭 = heron
-白鹭 = egret
-鹳 = stork
-鹮 = ibis
-琵鹭 = spoonbill
-火烈鸟 = flamingo
-鹤 = crane bird
-骨顶鸡 = coot
-鸻 = plover
-鹬 = sandpiper
-蛎鹬 = oystercatcher
-麦鸡 = lapwing
-鹰 = hawk
-雕 = eagle
-鵟 = buzzard
-鸢 = kite bird of prey
-隼 = falcon
-秃鹫 = vulture
-猫头鹰 = owl
-鸽子 = pigeon
-斑鸠 = dove
-鹦鹉 = parrot
-杜鹃 = cuckoo
-蕉鹃 = turaco
-咬鹃 = trogon
-翠鸟 = kingfisher
-蜂虎 = bee-eater
-佛法僧 = roller bird
-戴胜 = hoopoe
-犀鸟 = hornbill
-啄木鸟 = woodpecker
-巨嘴鸟 = toucan
-蜂鸟 = hummingbird
-夜鹰 = nightjar
-雨燕 = swift bird
-燕子 = swallow bird
-花蜜鸟 = sunbird
-食蜜鸟 = sugarbird
-绣眼鸟 = white-eye bird
-鹎 = bulbul
-鸫 = thrush
-鸲 = robin
-鹟 = flycatcher
-莺 = warbler
-山雀 = tit bird
-鹡鸰 = wagtail
-百灵 = lark
-伯劳 = shrike
-卷尾 = drongo
-黄鹂 = oriole
-乌鸦 = crow
-喜鹊 = magpie
-椋鸟 = starling
-八哥 = myna
-织雀 = weaver bird
-麻雀 = sparrow
-雀 = finch
-金丝雀 = canary
-梅花雀 = waxbill
-鹀 = bunting
-鼠鸟 = mousebird
-鹪鹩 = wren
-珠鸡 = guineafowl
-雉鸡 = pheasant
-鹧鸪 = partridge
-鹌鹑 = quail
-孔雀 = peafowl
-鸡 = chicken
-火鸡 = turkey
-狮子 = lion
-老虎 = tiger
-豹 = leopard
-猎豹 = cheetah
-美洲豹 = jaguar
-薮猫 = serval
-狞猫 = caracal
-猫 = cat
-狗 = dog
-狼 = wolf
-狐狸 = fox
-胡狼 = jackal
-鬣狗 = hyena
-非洲野犬 = African wild dog
-熊 = bear
-北极熊 = polar bear
-大熊猫 = giant panda
-小熊猫 = red panda
-浣熊 = raccoon
-獾 = badger
-水獭 = otter
-獴 = mongoose
-狐獴 = meerkat
-黄鼠狼 = weasel
-海豹 = seal
-海狮 = sea lion
-海象 = walrus
-鲸 = whale
-海豚 = dolphin
-大象 = elephant
-犀牛 = rhinoceros
-河马 = hippopotamus
-长颈鹿 = giraffe
-斑马 = zebra
-马 = horse
-驴 = donkey
-骆驼 = camel
-羊驼 = alpaca
-牛 = cow
-水牛 = buffalo
-野牛 = bison
-牦牛 = yak
-绵羊 = sheep
-山羊 = goat
-羚羊 = antelope
-瞪羚 = gazelle
-角马 = wildebeest
-鹿 = deer
-驼鹿 = moose
-野猪 = wild boar
-疣猪 = warthog
-猪 = pig
-猴子 = monkey
-狒狒 = baboon
-猩猩 = orangutan
-黑猩猩 = chimpanzee
-大猩猩 = gorilla
-长臂猿 = gibbon
-狐猴 = lemur
-袋鼠 = kangaroo
-考拉 = koala
-树懒 = sloth
-食蚁兽 = anteater
-犰狳 = armadillo
-穿山甲 = pangolin
-蹄兔 = hyrax
-兔子 = rabbit
-野兔 = hare
-松鼠 = squirrel
-地松鼠 = ground squirrel
-花栗鼠 = chipmunk
-土拨鼠 = marmot
-河狸 = beaver
-豪猪 = porcupine
-刺猬 = hedgehog
-老鼠 = mouse
-水豚 = capybara
-蝙蝠 = bat
-蛇 = snake
-蜥蜴 = lizard
-鬣蜥 = agama lizard
-壁虎 = gecko
-变色龙 = chameleon
-巨蜥 = monitor lizard
-鳄鱼 = crocodile
-乌龟 = turtle
-陆龟 = tortoise
-海龟 = sea turtle
-青蛙 = frog
-蟾蜍 = toad
-蝾螈 = salamander
-鱼 = fish
-鲨鱼 = shark
-鳐鱼 = stingray
-水母 = jellyfish
-章鱼 = octopus
-螃蟹 = crab
-龙虾 = lobster
-海星 = starfish
-海葵 = sea anemone
-蜗牛 = snail
-蝴蝶 = butterfly
-蛾 = moth
-蜻蜓 = dragonfly
-蜜蜂 = bee
-黄蜂 = wasp
-蚂蚁 = ant
-甲虫 = beetle
-瓢虫 = ladybug
-蝗虫 = grasshopper
-螳螂 = praying mantis
-蝉 = cicada
-苍蝇 = fly insect
-蜘蛛 = spider
-蝎子 = scorpion
-毛毛虫 = caterpillar
-花 = flower
-帝王花 = protea flower
-针垫花 = pincushion protea flower
-鹤望兰 = bird of paradise flower
-玫瑰 = rose
-向日葵 = sunflower
-雏菊 = daisy
-兰花 = orchid
-百合 = lily
-郁金香 = tulip
-荷花 = lotus flower
-樱花 = cherry blossom
-欧石楠 = heather flower
-芦荟 = aloe plant
-仙人掌 = cactus
-多肉植物 = succulent plant
-蕨类 = fern
-苔藓 = moss
-蘑菇 = mushroom
-树 = tree
-棕榈树 = palm tree
-草 = grass
-叶子 = leaf
-果实 = fruit on a branch
-风景 = landscape
-山 = mountain
-海 = sea
-海滩 = beach
-海浪 = breaking wave
-礁石 = rocky coast
-河流 = river
-湖 = lake
-瀑布 = waterfall
-森林 = forest
-沙漠 = desert
-草原 = savanna
-天空 = cloudy sky
-日落 = sunset
-星空 = starry night sky
-月亮 = moon
-雪景 = snowy landscape
-城市 = city street
-建筑 = building
-房屋 = house
-桥 = bridge
-道路 = road
-汽车 = car
-船 = boat
-飞机 = airplane
-人物 = person
-人群 = crowd of people
-食物 = plate of food
-</script>
+<script id="det-worker-src" type="text/plain">
+// Model files run to hundreds of MB, more than Cache Storage takes in one entry on some machines, so they are
+// cached in the origin-private file system. Written under a temporary name first, so an interrupted download
+// never leaves a truncated model behind.
+const modelCache = {
+  async dir() { return (await navigator.storage.getDirectory()).getDirectoryHandle('photo-cull-models', { create: true }); },
+  name(key) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (const ch of String(key)) { const c = ch.charCodeAt(0); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+  },
+  async match(key) {
+    try {
+      const f = await (await (await this.dir()).getFileHandle(this.name(key))).getFile();
+      return f.size ? new Response(f, { headers: { 'content-length': String(f.size) } }) : undefined;
+    } catch (e) { return undefined; }
+  },
+  async put(key, response) {
+    try {
+      const buf = new Uint8Array(await response.arrayBuffer()), dir = await this.dir(), name = this.name(key);
+      const fh = await dir.getFileHandle(name + '.part', { create: true });
+      const h = await fh.createSyncAccessHandle();
+      h.truncate(0); h.write(buf, { at: 0 }); h.flush(); h.close();
+      await fh.move(name);
+    } catch (e) { /* caching is best effort */ }
+  },
+};
+let tf = null, det = null;
 
-<script id="vocab-sa" type="text/plain">
-非洲企鹅 = African penguin
-开普鸬鹚 = Cape cormorant
-白胸鸬鹚 = white-breasted cormorant
-开普鲣鸟 = Cape gannet
-黑背鸥 = kelp gull
-哈氏鸥 = Hartlaub's gull
-大凤头燕鸥 = greater crested tern
-非洲黑蛎鹬 = African oystercatcher
-白额沙鸻 = white-fronted plover
-黑背麦鸡 = blacksmith lapwing
-翻石鹬 = ruddy turnstone
-中杓鹬 = whimbrel
-灰鹭 = grey heron
-黑头鹭 = black-headed heron
-牛背鹭 = cattle egret
-小白鹭 = little egret
-锤头鹳 = hamerkop
-噪鹮 = hadada ibis
-圣鹮 = African sacred ibis
-非洲琵鹭 = African spoonbill
-大红鹳 = greater flamingo
-蓝鹤 = blue crane
-埃及雁 = Egyptian goose
-黄嘴鸭 = yellow-billed duck
-红瘤白骨顶 = red-knobbed coot
-鸵鸟 = common ostrich
-珠鸡 = helmeted guineafowl
-开普鹧鸪 = Cape spurfowl
-蛇鹫 = secretarybird
-开普兀鹫 = Cape vulture
-非洲海雕 = African fish eagle
-黑雕 = Verreaux's eagle
-豺鵟 = jackal buzzard
-黑肩鸢 = black-winged kite
-黄嘴鸢 = yellow-billed kite
-岩红隼 = rock kestrel
-斑雕鸮 = spotted eagle-owl
-仓鸮 = barn owl
-斑鸽 = speckled pigeon
-环颈斑鸠 = Cape turtle dove
-红眼斑鸠 = red-eyed dove
-棕斑鸠 = laughing dove
-尼斯纳蕉鹃 = Knysna turaco
-绿颊咬鹃 = Narina trogon
-斑鼠鸟 = speckled mousebird
-非洲戴胜 = African hoopoe
-斑鱼狗 = pied kingfisher
-冠翠鸟 = malachite kingfisher
-欧洲蜂虎 = European bee-eater
-紫胸佛法僧 = lilac-breasted roller
-南黄嘴犀鸟 = southern yellow-billed hornbill
-红脸地犀鸟 = southern ground hornbill
-家燕 = barn swallow
-大纹燕 = greater striped swallow
-岩燕 = rock martin
-双领花蜜鸟 = southern double-collared sunbird
-辉绿花蜜鸟 = malachite sunbird
-橙胸花蜜鸟 = orange-breasted sunbird
-紫水晶花蜜鸟 = amethyst sunbird
-开普食蜜鸟 = Cape sugarbird
-开普绣眼鸟 = Cape white-eye
-开普鹎 = Cape bulbul
-暗色鹎 = sombre greenbul
-橄榄鸫 = olive thrush
-开普矶鸫 = Cape rock thrush
-开普鸲鸫 = Cape robin-chat
-薮䳭 = familiar chat
-非洲石䳭 = African stonechat
-白腹鹟 = fiscal flycatcher
-暗色鹟 = African dusky flycatcher
-开普蓬背鹟 = Cape batis
-非洲寿带 = African paradise flycatcher
-卡鲁鹪莺 = Karoo prinia
-开普草莺 = Cape grassbird
-开普鹡鸰 = Cape wagtail
-橙喉长爪鹡鸰 = Cape longclaw
-非洲伯劳 = southern fiscal
-南非黑鵙 = southern boubou
-黄喉丛鵙 = bokmakierie
-叉尾卷尾 = fork-tailed drongo
-非洲渡鸦 = white-necked raven
-斑驳鸦 = pied crow
-红翅椋鸟 = red-winged starling
-紫翅椋鸟 = common starling
-开普织雀 = Cape weaver
-黑额织雀 = southern masked weaver
-红寡妇鸟 = southern red bishop
-黄寡妇鸟 = yellow bishop
-针尾维达雀 = pin-tailed whydah
-横斑梅花雀 = common waxbill
-开普麻雀 = Cape sparrow
-开普金丝雀 = Cape canary
-硫磺丝雀 = brimstone canary
-开普鹀 = Cape bunting
-查克马狒狒 = chacma baboon
-青腹绿猴 = vervet monkey
-岩蹄兔 = rock hyrax
-开普灰羚 = Cape grysbok
-小岩羚 = steenbok
-灰小羚羊 = common duiker
-山羚 = klipspringer
-白纹牛羚 = bontebok
-跳羚 = springbok
-黑斑羚 = impala
-大羚羊 = common eland
-大扭角林羚 = greater kudu
-南非剑羚 = gemsbok
-蓝角马 = blue wildebeest
-非洲水牛 = African buffalo
-开普山斑马 = Cape mountain zebra
-平原斑马 = plains zebra
-长颈鹿 = giraffe
-非洲象 = African elephant
-白犀 = white rhinoceros
-黑犀 = black rhinoceros
-河马 = hippopotamus
-疣猪 = common warthog
-狮子 = lion
-花豹 = African leopard
-猎豹 = cheetah
-狞猫 = caracal
-薮猫 = serval
-黑背胡狼 = black-backed jackal
-斑鬣狗 = spotted hyena
-非洲野犬 = African wild dog
-蜜獾 = honey badger
-狐獴 = meerkat
-黄獴 = yellow mongoose
-开普地松鼠 = Cape ground squirrel
-开普豪猪 = Cape porcupine
-南非海狗 = Cape fur seal
-南露脊鲸 = southern right whale
-座头鲸 = humpback whale
-宽吻海豚 = bottlenose dolphin
-真海豚 = common dolphin
-大白鲨 = great white shark
-南非岩鬣蜥 = southern rock agama
-环尾蜥 = girdled lizard
-豹纹陆龟 = leopard tortoise
-挺胸龟 = angulate tortoise
-尼罗鳄 = Nile crocodile
-鼓腹咝蝰 = puff adder
-开普眼镜蛇 = Cape cobra
-小红蛱蝶 = painted lady butterfly
-帝王花 = king protea
-针垫花 = pincushion protea
-鹤望兰 = strelitzia bird of paradise flower
-欧石楠 = erica heath flower
-芦荟 = aloe
+self.onmessage = async (e) => {
+  const q = e.data;
+  try {
+    if (q.type === 'load') { await load(q); self.postMessage({ id: q.id }); }
+    else if (q.type === 'detect') self.postMessage({ id: q.id, boxes: await detect(q.file) });
+  } catch (err) {
+    self.postMessage({ id: q.id, error: String(err && err.message || err) });
+  }
+};
+
+async function load(q) {
+  if (!tf) {
+    tf = await import(q.lib + 'transformers.min.js');
+    tf.env.allowLocalModels = false;
+    tf.env.backends.onnx.wasm.wasmPaths = q.lib;
+    tf.env.backends.onnx.logLevel = 'error';  // ONNX Runtime's graph-optimiser warnings are harmless noise
+    tf.env.useBrowserCache = false;
+    tf.env.useCustomCache = true;
+    tf.env.customCache = modelCache;
+  }
+  tf.env.remoteHost = q.host;
+  det = await tf.pipeline('object-detection', q.model, {
+    dtype: 'fp32', device: 'wasm',
+    progress_callback: p => { if (p.status === 'progress' && p.total) self.postMessage({ type: 'progress', file: p.file, loaded: p.loaded, total: p.total }); },
+  });
+}
+
+// COCO boxes as [label, score, [x0, y0, x1, y1]] with coordinates as fractions of the frame.
+async function detect(file) {
+  const bmp = await createImageBitmap(file, { resizeWidth: 1024, resizeQuality: 'medium' });
+  const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0);
+  const img = new tf.RawImage(g.getImageData(0, 0, bmp.width, bmp.height).data, bmp.width, bmp.height, 4);
+  bmp.close();
+  const res = await det(img, { threshold: 0.25, percentage: true });
+  return res.map(r => [r.label, Math.round(r.score * 100) / 100, [r.box.xmin, r.box.ymin, r.box.xmax, r.box.ymax].map(v => Math.round(v * 1000) / 1000)]);
+}
 </script>
 
 <script>
@@ -1045,8 +681,7 @@ const $ = s => document.querySelector(s);
 
 const DEFAULTS = {
   burstGap: 2, blurRatio: 50, blurPct: 10, recursive: true, autoAdvance: true, groupView: true, tile: 190,
-  burstLabel: true, aiModel: 'jsteinshouer/trail-bingo-bioclip-onnx', aiHost: 'auto', aiAccept: 80,
-  vocGeneral: true, vocSa: true,
+  burstLabel: true, aiHost: 'auto', aiAccept: 80, aiRegion: 'sa', birdFolder: true,
 };
 const settings = loadSettings();
 function loadSettings() {
@@ -1062,7 +697,7 @@ const state = {
   photos: [], byPath: new Map(), sorted: [], groups: [], visible: [],
   sel: new Set(), cur: null, anchor: null, undo: [],
   total: 0, done: 0, analyzed: false, organizing: false,
-  loupe: false, loupeTok: 0, loupeUrl: null, filter: 'all', candidates: '',
+  loupe: false, loupeTok: 0, loupeUrl: null, filter: 'all',
 };
 
 /* ---------- worker pool ---------- */
@@ -1162,9 +797,8 @@ function reset() {
   closeLoupe();
   Object.assign(state, {
     root: null, readonly: false, photos: [], byPath: new Map(), sorted: [], groups: [], visible: [],
-    sel: new Set(), cur: null, anchor: null, undo: [], total: 0, done: 0, analyzed: false, candidates: '',
+    sel: new Set(), cur: null, anchor: null, undo: [], total: 0, done: 0, analyzed: false,
   });
-  ai.emb = new Map();
   $('#grid').textContent = '';
   $('#banner').hidden = true;
 }
@@ -1172,7 +806,6 @@ function reset() {
 async function loadPhotos(found, side) {
   const gen = state.gen;
   const recs = (side && side.photos) || {};
-  state.candidates = (side && side.candidates) || '';
   const files = [];
   for (let i = 0; i < found.length; i += 64) {
     files.push(...await Promise.all(found.slice(i, i + 64).map(f => f.file ? f.file : f.fh.getFile())));
@@ -1185,12 +818,16 @@ async function loadPhotos(found, side) {
       path: f.path, name: f.name, fh: f.fh || null, parent: f.parent || null, file: f.file || null,
       size: file.size, mtime: file.lastModified, time: null, sharp: null,
       rating: 0, reject: false, label: '', thumb: null, el: null, job: null,
-      ai: null, sug: null, sugKey: '',
+      ai: null, kind: '', vec: null, sug: null, sugKey: '',
     };
     const r = recs[f.path];
     if (r) {
       p.rating = r.r || 0; p.reject = !!r.x; p.label = r.l || '';
-      if (r.k === keyOf(p) && r.s != null) Object.assign(p, { time: r.t ?? null, sharp: r.s, bright: r.b, clipHi: r.hi, clipLo: r.lo, ai: r.a || null });
+      if (r.k === keyOf(p) && r.s != null) {
+        Object.assign(p, { time: r.t ?? null, sharp: r.s, bright: r.b, clipHi: r.hi, clipLo: r.lo });
+        // AI results from the BioCLIP 2 version carry a kind ("鸟", "兽类", ...); older CLIP guesses are dropped
+        if (r.a && r.kd) Object.assign(p, { ai: r.a, kind: r.kd, vec: r.v ? unpackVec(r.v) : null });
+      }
     }
     state.photos.push(p);
     state.byPath.set(p.path, p);
@@ -1338,22 +975,74 @@ function groupLabel(g) {
   return best;
 }
 
+// One frame stands in for a whole burst: its best frame, or the sharpest one that decoded.
+function repOf(g) {
+  if (g.best) return g.best;
+  return g.photos.reduce((a, p) => (!p.error && (!a || p.sharp > a.sharp) ? p : a), null);
+}
+
+// The frame the AI looked at: the group's best frame, or any frame that has a result.
+function groupRep(g) {
+  if (g.best && g.best.ai) return g.best;
+  return g.photos.find(q => q.ai) || null;
+}
+
 function groupAi(g) {
-  if (g.best && g.best.ai) return g.best.ai;
-  const p = g.photos.find(q => q.ai);
+  const p = groupRep(g);
   return p ? p.ai : null;
+}
+
+const groupKind = g => { const p = groupRep(g); return p ? p.kind : ''; };
+const pct = v => Math.round(v * 100) + '%';
+
+// Nearest group the user has already labelled, by BioCLIP 2 image embedding.
+function nearestLabelled(g, pool) {
+  const r = groupRep(g);
+  if (!r || !r.vec) return null;
+  let best = null;
+  for (const [h, vec, label] of pool) {
+    if (h === g) continue;
+    const s = dotVec(r.vec, vec);
+    if (!best || s > best.sim) best = { label, sim: s };
+  }
+  return best;
+}
+
+// Up to three guesses (labelled look-alikes, then the AI's), followed by the "bird, species unknown" and
+// "same as previous group" fallbacks.
+function guesses(g) {
+  const out = [], add = o => { if (!out.some(x => x.label === o.label)) out.push(o); };
+  const nn = g.nn, knn = nn && { label: nn.label, src: 'knn', conf: nn.sim, note: `像已分类的照片 ${pct(nn.sim)}` };
+  if (nn && nn.sim >= KNN_FIRST) add(knn);
+  (groupAi(g) || []).forEach(([label, v, en], k) => {
+    add({ label, src: 'ai', conf: v, en, note: `AI ${pct(v)}` });
+    if (k === 0 && nn && nn.sim >= KNN_SHOW) add(knn);
+  });
+  if (!groupAi(g) && nn && nn.sim >= KNN_SHOW) add(knn);
+  const top = out.slice(0, 3);
+  const kind = groupKind(g);
+  if (kind === BIRD && !top.some(o => o.label === BIRD)) top.push({ label: BIRD, src: 'kind', note: '只标为鸟，暂不定种' });
+  if (kind && kind !== BIRD && !top.some(o => o.label === '其他')) top.push({ label: '其他', src: 'kind', note: '风景、废片等' });
+  if (g.prevLabel && !top.some(o => o.label === g.prevLabel)) top.push({ label: g.prevLabel, src: 'prev', note: '沿用上一组' });
+  return top;
 }
 
 // A suggestion is never applied on its own: it shows as a dashed chip until the user accepts it.
 function refreshSuggestions() {
+  const pool = [];
+  for (const h of state.groups) {
+    const r = groupRep(h), l = r && r.vec && groupLabel(h);
+    if (l) pool.push([h, r.vec, l]);
+  }
   let prev = null;
   for (const g of state.groups) {
-    const ai = groupAi(g);
     const near = prev && capTime(g.photos[0]) - capTime(prev.photos[prev.photos.length - 1]) <= PREV_GAP;
     g.prevLabel = near ? groupLabel(prev) : '';
-    if (ai && ai[0][1] >= AI_SURE) g.sug = { label: ai[0][0], src: 'ai', conf: ai[0][1] };
+    g.nn = g.photos.some(p => !p.label) ? nearestLabelled(g, pool) : null;
+    const top = guesses(g).find(o => o.src === 'ai' || o.src === 'knn');
+    if (top && (top.src === 'knn' || top.conf >= AI_SURE)) g.sug = { label: top.label, src: top.src, conf: top.conf };
     else if (g.prevLabel) g.sug = { label: g.prevLabel, src: 'prev' };
-    else if (ai) g.sug = { label: ai[0][0], src: 'ai', conf: ai[0][1] };
+    else if (top) g.sug = { label: top.label, src: top.src, conf: top.conf };
     else g.sug = null;
     for (const p of g.photos) {
       const s = p.label ? null : g.sug;
@@ -1367,7 +1056,7 @@ function refreshSuggestions() {
   }
 }
 
-const sugNote = s => s.src === 'ai' ? `AI ${Math.round(s.conf * 100)}%` : '沿用上一组';
+const sugNote = s => s.src === 'ai' ? `AI ${pct(s.conf)}` : s.src === 'knn' ? `像已分类的照片 ${pct(s.conf)}` : '沿用上一组';
 
 function renderHeadSug(g) {
   if (!g.headSug) return;
@@ -1705,13 +1394,10 @@ function openLabelDialog() {
   updateLabelCount();
   const common = base.every(p => p.label === base[0].label) ? base[0].label : '';
   const sug = base[0].sug && base.every(p => p.sug && p.sug.label === base[0].sug.label) ? base[0].sug : null;
-  // One-click choices: the current suggestion, the other AI guesses, and the previous group's label.
+  // One-click choices: the current suggestion, then the group's guesses and fallbacks.
   const opts = new Map();
   if (sug) opts.set(sug.label, sugNote(sug));
-  if (g && base.every(p => p.group === g)) {
-    for (const [l, v] of groupAi(g) || []) if (!opts.has(l)) opts.set(l, `AI ${Math.round(v * 100)}%`);
-    if (g.prevLabel && !opts.has(g.prevLabel)) opts.set(g.prevLabel, '沿用上一组');
-  }
+  if (g && base.every(p => p.group === g)) for (const o of guesses(g)) if (!opts.has(o.label)) opts.set(o.label, o.note);
   $('#labelSug').innerHTML = [...opts].map(([l, note]) =>
     `<button type="button" data-label="${escapeHtml(l)}">${escapeHtml(l)} <small class="muted">${note}</small></button>`).join('');
   $('#labelSug').hidden = !opts.size;
@@ -1788,7 +1474,7 @@ function renderSide() {
   const g = p.group, gi = g ? g.photos.indexOf(p) + 1 : 0;
   const flags = [p.best && '本组最佳', p.blurry && '可能模糊', p.dark && '欠曝', p.over && '过曝'].filter(Boolean).join('、') || '无';
   const sug = !p.label && p.sug ? p.sug : null;
-  const guesses = g && groupAi(g);
+  const found = g && groupAi(g);
   side.innerHTML = `
     <h2>${escapeHtml(p.name)}</h2>
     <div class="muted">${escapeHtml(dirOf(p.path) || '（根目录）')}</div>
@@ -1801,7 +1487,8 @@ function renderSide() {
     <dl>
       <dt>分类</dt><dd>${p.label ? escapeHtml(p.label) : '<span class="muted">未分类</span>'}</dd>
       ${sug ? `<dt>建议</dt><dd>${escapeHtml(sug.label)}（${sugNote(sug)}）</dd>` : ''}
-      ${guesses ? `<dt>AI 识别</dt><dd>${guesses.map(([l, v]) => `${escapeHtml(l)} ${Math.round(v * 100)}%`).join('<br>')}</dd>` : ''}
+      ${found ? `<dt>AI 大类</dt><dd>${escapeHtml(groupKind(g))}</dd>
+        <dt>AI 识别</dt><dd>${found.map(([l, v, en]) => `${escapeHtml(l)} ${pct(v)}${en ? `<br><small class="muted">${escapeHtml(en)}</small>` : ''}`).join('<br>')}</dd>` : ''}
       <dt>拍摄时间</dt><dd>${p.time ? fmtTime(p.time) : '<span class="muted">无 EXIF，用修改时间</span>'}</dd>
       <dt>清晰度</dt><dd>${p.pct != null ? `${p.pct}/100` : '分析中…'}</dd>
       <dt>亮度</dt><dd>${p.bright != null ? Math.round(p.bright) + '/255' : '—'}</dd>
@@ -1812,23 +1499,28 @@ function renderSide() {
     <div class="hint">1–5 打星 · 0 清除 · X 待删除 · T 分类 · A 接受建议<br>← → 切换 · B 跳到本组最佳<br>Z 或单击图片：100% 查看对焦 · Esc 返回</div>`;
 }
 
-/* ---------- optional AI suggestions: zero-shot CLIP, run locally with Transformers.js ---------- */
+/* ---------- AI recognition: bird detector + BioCLIP 2, run locally with Transformers.js ---------- */
 const AI_LIBS = [
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/',
   'https://unpkg.com/@huggingface/transformers@3.8.1/dist/',
 ];
 const AI_HOSTS = { hf: 'https://huggingface.co/', mirror: 'https://hf-mirror.com/' };
-const AI_PROMPT = 'a photo of a {}';
+// Bird and reference embeddings sit in data/ next to index.html. A page opened as a local file cannot fetch()
+// them, so fall back to the copy published on GitHub.
+const AI_DATA = ['data/', 'https://cdn.jsdelivr.net/gh/Foooxmjy/photo_cull@main/data/'];
+const DET_MODEL = 'onnx-community/dfine_s_coco-ONNX';
+const VISION = [
+  { repo: 'Lumilio-Photos/bioclip-2', subfolder: 'onnx', file: 'vision.fp16', device: 'webgpu' },
+  { repo: 'rickyho/bioclip2-onnx', subfolder: '', file: 'bioclip2_visual_int8', device: 'wasm' },
+];
+const BIRD = '鸟';
+// Tuned on 163 bird and 50 non-bird photos: every bird was found, one whale was taken for a bird.
+const BIRD_DET = 0.5, CROP_MARGIN = 0.02, FULL_MARGIN = 0.05;
+const SA_BONUS = 0.04;                    // similarity bonus for species on the regional checklist
+const KNN_FIRST = 0.9, KNN_SHOW = 0.85;   // "looks like a group you already labelled"
 const ai = {
-  worker: null, lib: null, loaded: null, busy: false, cancel: false,
-  seq: 0, pending: new Map(), files: new Map(),
-  text: new Map(),  // prompt -> text embedding for the loaded model
-  emb: new Map(),   // photo -> image embedding, kept for the session so a new candidate list re-scores instantly
-  crop: 0.7,        // side fraction of the crop taken around the in-focus area
-  // 8-bit quantised CLIP text weights wreck zero-shot accuracy (12/27 vs 27/27 groups in testing), so use fp16.
-  dtype: { text: 'fp16', vision: 'fp16' },
-  device: navigator.gpu ? 'webgpu' : 'wasm',
-  used: '',         // device the loaded model actually runs on
+  vw: null, dw: null, lib: null, ready: false, busy: false, cancel: false,
+  seq: 0, pending: new Map(), files: new Map(), data: null, used: '',
 };
 
 function aiNote(text, err) {
@@ -1842,22 +1534,12 @@ function aiStatus(text, frac) {
   progress(frac, text);
 }
 
-function aiCall(msg) {
-  return new Promise((res, rej) => {
-    const id = ++ai.seq;
-    ai.pending.set(id, { res, rej });
-    ai.worker.postMessage({ ...msg, id });
-  });
-}
-
-function aiStartWorker() {
-  if (ai.worker) return;
-  const url = URL.createObjectURL(new Blob([$('#ai-worker-src').textContent], { type: 'text/javascript' }));
-  ai.worker = new Worker(url, { type: 'module' });
-  ai.worker.onmessage = e => {
+function aiWorker(id) {
+  const w = new Worker(URL.createObjectURL(new Blob([$(id).textContent], { type: 'text/javascript' })), { type: 'module' });
+  w.onmessage = e => {
     const d = e.data;
     if (d.type === 'progress') {
-      ai.files.set(d.file, [d.loaded, d.total]);
+      ai.files.set(id + d.file, [d.loaded, d.total]);
       let a = 0, b = 0;
       for (const [l, t] of ai.files.values()) { a += l; b += t; }
       const mb = v => Math.round(v / 1048576);
@@ -1868,10 +1550,19 @@ function aiStartWorker() {
     ai.pending.delete(d.id);
     if (job) d.error ? job.rej(new Error(d.error)) : job.res(d);
   };
-  ai.worker.onerror = e => {
+  w.onerror = e => {
     for (const j of ai.pending.values()) j.rej(new Error(e.message || 'AI 模块加载失败'));
     ai.pending.clear();
   };
+  return w;
+}
+
+function aiCall(w, msg) {
+  return new Promise((res, rej) => {
+    const id = ++ai.seq;
+    ai.pending.set(id, { res, rej });
+    w.postMessage({ ...msg, id });
+  });
 }
 
 async function reachable(url) {
@@ -1879,126 +1570,161 @@ async function reachable(url) {
   catch (e) { return false; }
 }
 
-async function aiLoad(model, hostPref) {
-  if (ai.loaded === model) return;
-  aiStatus('正在连接模型下载源…', 0);
-  // A Transformers.js CLIP repo has config.json; an "encoder pair" repo (BioCLIP) has manifest.json instead.
-  let host = null, manifest = null;
-  for (const h of hostPref === 'auto' ? ['hf', 'mirror'] : [hostPref]) {
-    const base = `${AI_HOSTS[h]}${model}/resolve/main/`;
-    if (await reachable(base + 'config.json')) { host = AI_HOSTS[h]; break; }
+async function fetchData(name, json) {
+  for (const base of AI_DATA) {
     try {
-      const r = await fetch(base + 'manifest.json', { signal: AbortSignal.timeout(8000) });
-      const mf = r.ok ? await r.json() : null;
-      if (mf && mf.files && mf.preprocess) { host = AI_HOSTS[h]; manifest = mf; break; }
-    } catch (e) { /* try the next host */ }
+      const r = await fetch(base + name);
+      if (r.ok) return json ? await r.json() : await r.arrayBuffer();
+    } catch (e) { /* try the next copy */ }
   }
-  if (!host) throw new Error('连接不上模型下载源，或者模型 ID 不存在。可以换一个下载源再试。');
+  throw new Error(`读取不到识别数据 ${name}，请检查网络。`);
+}
+
+function half(h) {
+  const s = h >> 15, e = (h >> 10) & 31, m = h & 1023;
+  const v = e === 0 ? 2 ** -14 * (m / 1024) : e === 31 ? NaN : 2 ** (e - 15) * (1 + m / 1024);
+  return s ? -v : v;
+}
+
+// birds.bin: fp16 rows of 768; refs.bin: int8 rows of 768, then one float32 scale per row.
+async function aiLoadData() {
+  if (ai.data) return;
+  aiStatus('正在读取鸟类数据…', 0);
+  const [bm, bb, rm, rb] = await Promise.all([fetchData('birds.json', true), fetchData('birds.bin'), fetchData('refs.json', true), fetchData('refs.bin')]);
+  const lut = new Float32Array(65536);
+  for (let h = 0; h < 65536; h++) lut[h] = half(h);
+  const raw = new Uint16Array(bb), BT = new Float32Array(raw.length);
+  for (let i = 0; i < raw.length; i++) BT[i] = lut[raw[i]];
+  const n = rm.count, q = new Int8Array(rb, 0, n * 768), sc = new Float32Array(rb, n * 768, n), RT = new Float32Array(n * 768);
+  for (let i = 0; i < n; i++) { const k = sc[i] / 127; for (let j = 0; j < 768; j++) RT[i * 768 + j] = q[i * 768 + j] * k; }
+  ai.data = { birds: bm.rows, nb: bm.count, BT, groups: rm.groups, group: Int32Array.from(rm.group), nr: n, RT };
+}
+
+async function aiLoad() {
+  if (ai.ready) return;
+  aiStatus('正在连接模型下载源…', 0);
+  let host = null;
+  for (const h of settings.aiHost === 'auto' ? ['hf', 'mirror'] : [settings.aiHost]) {
+    if (await reachable(`${AI_HOSTS[h]}${DET_MODEL}/resolve/main/config.json`)) { host = AI_HOSTS[h]; break; }
+  }
+  if (!host) throw new Error('连接不上模型下载源，可以换一个下载源再试。');
   if (!ai.lib) {
     for (const l of AI_LIBS) if (await reachable(l + 'transformers.min.js')) { ai.lib = l; break; }
     if (!ai.lib) throw new Error('连接不上 jsdelivr 和 unpkg，无法加载 Transformers.js。');
   }
-  aiStartWorker();
+  await aiLoadData();
+  ai.dw = ai.dw || aiWorker('#det-worker-src');
+  ai.vw = ai.vw || aiWorker('#vision-worker-src');
   ai.files.clear();
   aiStatus('正在加载模型…', 0);
-  ai.used = (await aiCall({ type: 'load', lib: ai.lib, host, model, manifest, dtype: ai.dtype, device: ai.device })).device;
-  ai.loaded = model;
-  ai.emb = new Map();
-  ai.text = new Map();
+  const [, v] = await Promise.all([
+    aiCall(ai.dw, { type: 'load', lib: ai.lib, host, model: DET_MODEL }),
+    aiCall(ai.vw, { type: 'load', lib: ai.lib, host, options: navigator.gpu ? VISION : VISION.slice(1) }),
+  ]);
+  ai.used = v.device;
+  ai.ready = true;
 }
 
-const vocab = id => parseCandidates($('#vocab-' + id).textContent);
+const dotRow = (e, M, i) => { let s = 0; const o = i * 768; for (let j = 0; j < 768; j++) s += e[j] * M[o + j]; return s; };
+const dotVec = (a, b) => { let s = 0; for (let j = 0; j < 768; j++) s += a[j] * b[j]; return s; };
 
-// Custom lines first, then the ticked built-in vocabularies; the same label may appear with several prompts.
-function allCandidates() {
-  const out = parseCandidates($('#aiCands').value);
-  if ($('#aiVocSa').checked) out.push(...vocab('sa'));
-  if ($('#aiVocGeneral').checked) out.push(...vocab('general'));
-  const seen = new Set();
-  return out.filter(c => { const k = c.label + '|' + c.prompt.toLowerCase(); return seen.has(k) ? false : seen.add(k); });
+function blend(main, extra, w) {
+  const v = new Float32Array(768);
+  let n = 0;
+  for (let j = 0; j < 768; j++) { v[j] = main[j] + (extra ? extra[j] * w : 0); n += v[j] * v[j]; }
+  n = Math.sqrt(n) || 1;
+  for (let j = 0; j < 768; j++) v[j] /= n;
+  return v;
 }
 
-async function embedCandidates(cands) {
-  const prompts = [...new Set(cands.map(c => AI_PROMPT.replace('{}', c.prompt)))].filter(t => !ai.text.has(t));
-  for (let i = 0; i < prompts.length && !ai.cancel; i += 32) {
-    aiStatus(`正在准备候选分类 ${Math.min(i + 32, prompts.length)} / ${prompts.length}`, i / prompts.length);
-    const part = prompts.slice(i, i + 32);
-    const t = await aiCall({ type: 'text', texts: part });
-    part.forEach((p, k) => ai.text.set(p, t.emb.subarray(k * t.dim, (k + 1) * t.dim)));
-  }
+function birdMax(e) {
+  let m = -1;
+  for (let i = 0; i < ai.data.nb; i++) m = Math.max(m, dotRow(e, ai.data.BT, i));
+  return m;
 }
 
-function parseCandidates(text) {
-  const out = [];
-  for (const line of text.split(/\r?\n/)) {
-    const i = line.search(/[=＝]/);
-    const label = sanitizeLabel(i < 0 ? line : line.slice(0, i));
-    const prompt = (i < 0 ? line : line.slice(i + 1)).trim() || label;
-    if (label) out.push({ label, prompt });
-  }
-  return out;
+// Best similarity per broad group ("兽类", "植物", ...).
+function refGroups(e) {
+  const D = ai.data, g = new Array(D.groups.length).fill(-1);
+  for (let i = 0; i < D.nr; i++) { const s = dotRow(e, D.RT, i), k = D.group[i]; if (s > g[k]) g[k] = s; }
+  return g;
 }
 
-// One frame stands in for a whole burst: its best frame, or the sharpest one that decoded.
-function repOf(g) {
-  if (g.best) return g.best;
-  return g.photos.reduce((a, p) => (!p.error && (!a || p.sharp > a.sharp) ? p : a), null);
+// Turns [[label, similarity, ...], ...] (best first) into the top k with softmax probabilities.
+function softTop(list, k) {
+  const mx = list[0][1], ex = list.map(x => Math.exp(100 * (x[1] - mx))), sum = ex.reduce((a, b) => a + b, 0);
+  return list.slice(0, k).map((x, i) => [x[0], Math.round(ex[i] / sum * 1000) / 1000, ...x.slice(2)]);
 }
 
-function scoreAll(cands) {
-  const T = cands.map(c => ai.text.get(AI_PROMPT.replace('{}', c.prompt)));
-  for (const [p, e] of ai.emb) {
-    const logits = T.map(t => { let s = 0; for (let j = 0; j < e.length; j++) s += e[j] * t[j]; return 100 * s; });
-    const top = Math.max(...logits), ex = logits.map(v => Math.exp(v - top)), sum = ex.reduce((a, b) => a + b, 0);
-    const by = new Map();
-    cands.forEach((c, i) => by.set(c.label, (by.get(c.label) || 0) + ex[i] / sum));
-    const top8 = [...by].sort((a, b) => b[1] - a[1]).slice(0, 8);
-    // "企鹅" and "非洲企鹅" split one guess in two: fold a general name into the best more specific name
-    // ending with it, unless the specific one is far behind.
-    for (const g of top8.slice()) {
-      const spec = top8.filter(s => s !== g && s[0].length > g[0].length && s[0].endsWith(g[0])).sort((a, b) => b[1] - a[1])[0];
-      if (spec && spec[1] >= g[1] / 2) { spec[1] += g[1]; top8.splice(top8.indexOf(g), 1); }
+const birdName = r => r[2] || r[1];
+
+// Bird or not first; birds then get species guesses, everything else a broad group.
+function classify(boxes, full, crop) {
+  const D = ai.data, max = a => Math.max(...a);
+  const birdBox = Math.max(0, ...boxes.filter(b => b[0] === 'bird').map(b => b[1]));
+  const fB = birdMax(full), fG = refGroups(full);
+  const cB = crop ? birdMax(crop) : -1, cG = crop ? refGroups(crop) : null;
+  const isBird = (crop && birdBox >= BIRD_DET && cB > max(cG) + CROP_MARGIN) || fB > max(fG) + FULL_MARGIN;
+  if (isBird) {
+    const vec = crop ? blend(crop, full, 0.5) : blend(full);
+    const bonus = settings.aiRegion === 'sa' ? SA_BONUS : 0, top = [];
+    for (let i = 0; i < D.nb; i++) {
+      const s = dotRow(vec, D.BT, i) + (D.birds[i][4] ? bonus : 0);
+      if (top.length < 20 || s > top[top.length - 1][1]) {
+        top.push([i, s]);
+        top.sort((a, b) => b[1] - a[1]);
+        if (top.length > 20) top.pop();
+      }
     }
-    p.ai = top8.sort((a, b) => b[1] - a[1]).slice(0, 3).map(([l, v]) => [l, Math.round(v * 1000) / 1000]);
+    return { kind: BIRD, vec, ai: softTop(top.map(([i, s]) => [birdName(D.birds[i]), s, D.birds[i][1]]), 3) };
   }
+  const groups = D.groups.map((name, k) => [name, Math.max(fG[k], cG ? cG[k] : -1)]);
+  groups.push([BIRD, Math.max(fB, cB)]);
+  groups.sort((a, b) => b[1] - a[1]);
+  const out = softTop(groups, 4).filter(o => o[0] !== BIRD || o[1] >= 0.05).slice(0, 3);
+  // People are not in the reference set; the detector's "person" is offered as a guess, not trusted as the kind
+  // (it fires on dolphins and whales too).
+  const person = Math.max(0, ...boxes.filter(b => b[0] === 'person').map(b => b[1]));
+  if (person >= 0.7) out.splice(Math.min(out.length, 2), 1, ['人物', person]);
+  return { kind: out[0][0], vec: blend(full), ai: out };
 }
 
 async function runAi() {
   if (ai.busy) { ai.cancel = true; return; }
   if (!state.analyzed) { aiNote('请等自动分析完成后再开始。', true); return; }
-  const cands = allCandidates();
-  if (new Set(cands.map(c => c.label)).size < 2) { aiNote('请勾选一个内置词表，或者至少填写 2 个候选分类。', true); return; }
-  const model = $('#aiModel').value === 'custom' ? $('#aiModelId').value.trim() : $('#aiModel').value;
-  if (!model) { aiNote('请填写模型 ID。', true); return; }
-  state.candidates = $('#aiCands').value;
-  try { localStorage.setItem('photo-cull-candidates', state.candidates); } catch (e) { /* private mode */ }
-  settings.aiModel = model; settings.aiHost = $('#aiHost').value;
-  settings.vocGeneral = $('#aiVocGeneral').checked; settings.vocSa = $('#aiVocSa').checked;
+  settings.aiHost = $('#aiHost').value;
+  settings.aiRegion = $('#aiRegion').value;
   saveSettings();
-  markDirty();
-
+  const redo = $('#aiRedo').checked;
   const gen = state.gen;
   ai.busy = true; ai.cancel = false;
   $('#aiRun').textContent = '取消';
   let failed = 0;
   try {
-    await aiLoad(model, settings.aiHost);
-    const reps = state.groups.filter(g => g.photos.some(p => !p.label)).map(repOf).filter(p => p && !ai.emb.has(p));
+    await aiLoad();
+    const reps = state.groups.filter(g => g.photos.some(p => !p.label)).map(repOf).filter(p => p && (redo || !p.ai));
+    const detectOf = p => getFile(p).then(file => aiCall(ai.dw, { type: 'detect', file })).then(r => r.boxes, () => []);
+    let next = reps.length ? detectOf(reps[0]) : null;  // the next photo is detected while this one is embedded
+    const t0 = performance.now();
     for (let i = 0; i < reps.length && !ai.cancel && gen === state.gen; i++) {
-      aiStatus(`正在识别 ${i + 1} / ${reps.length}`, i / reps.length);
-      try { ai.emb.set(reps[i], (await aiCall({ type: 'image', file: await getFile(reps[i]), crop: ai.crop })).emb); }
-      catch (e) { failed++; console.error(e); }
+      const left = i ? Math.round((performance.now() - t0) / i * (reps.length - i) / 60000) : null;
+      aiStatus(`正在识别 ${i + 1} / ${reps.length}` + (left ? `，大约还要 ${left} 分钟` : ''), i / reps.length);
+      const p = reps[i];
+      try {
+        const boxes = await next;
+        next = i + 1 < reps.length ? detectOf(reps[i + 1]) : null;
+        const bird = boxes.filter(b => b[0] === 'bird').sort((a, b) => b[1] - a[1])[0];
+        const r = await aiCall(ai.vw, { type: 'embed', file: await getFile(p), box: bird ? bird[2] : null });
+        Object.assign(p, classify(boxes, r.full, r.crop));
+      } catch (e) { failed++; console.error(e); }
     }
     if (gen !== state.gen) return;
-    await embedCandidates(cands);
-    if (gen !== state.gen) return;
-    const ready = cands.filter(c => ai.text.has(AI_PROMPT.replace('{}', c.prompt)));
-    if (ready.length > 1) scoreAll(ready);
     refreshSuggestions();
     markDirty();
     updateStatus();
     progress(null);
-    aiSummary((ai.cancel ? '已取消，已识别的部分保留。' : '识别完成。') + (failed ? `${failed} 张照片识别失败。` : ''));
+    aiSummary((ai.cancel ? '已取消，已识别的部分保留。' : '识别完成。') + (failed ? `${failed} 组识别失败。` : '') +
+      (ai.used === 'wasm' ? '（这台电脑没有可用的显卡加速，用的是 CPU 版模型。）' : ''));
     // Straight into the pick-one-of-three review, unless the run was cancelled or the dialog was closed meanwhile.
     if (!ai.cancel && $('#dlgAi').open && reviewList().length) { $('#dlgAi').close(); openReview(); }
   } catch (e) {
@@ -2015,9 +1741,10 @@ const aiThreshold = () => Math.min(100, Math.max(30, parseFloat($('#aiThr').valu
 
 function aiSummary(prefix) {
   const all = aiPending(0).length, thr = aiThreshold();
+  const birds = state.groups.filter(g => groupKind(g) === BIRD && g.photos.some(p => !p.label)).length;
   $('#aiStatus').classList.remove('err');
   $('#aiStatus').textContent = (prefix || '') + (all
-    ? `现在有 ${all} 组照片带 AI 建议待确认，其中 ${aiPending(thr / 100).length} 组置信度不低于 ${thr}%。`
+    ? `现在有 ${all} 组照片带 AI 建议待确认（其中 ${birds} 组有鸟），${aiPending(thr / 100).length} 组置信度不低于 ${thr}%。`
     : (prefix ? '' : '还没有 AI 建议。'));
 }
 
@@ -2032,21 +1759,30 @@ function acceptConfident() {
 }
 
 function openAiDialog() {
-  let text = state.candidates;
-  if (!text) { try { text = localStorage.getItem('photo-cull-candidates') || ''; } catch (e) { /* private mode */ } }
-  $('#aiCands').value = text;
-  $('#aiVocGeneral').checked = settings.vocGeneral;
-  $('#aiVocSa').checked = settings.vocSa;
-  $('#aiVocGeneralN').textContent = vocab('general').length;
-  $('#aiVocSaN').textContent = vocab('sa').length;
-  const known =[...$('#aiModel').options].some(o => o.value === settings.aiModel);
-  $('#aiModel').value = known ? settings.aiModel : 'custom';
-  $('#aiModelId').value = known ? '' : settings.aiModel;
-  $('#aiModelIdRow').hidden = known;
+  $('#aiRegion').value = settings.aiRegion;
   $('#aiHost').value = settings.aiHost;
   $('#aiThr').value = settings.aiAccept;
+  $('#aiRedo').checked = false;
   if (!ai.busy) aiSummary();
   $('#dlgAi').showModal();
+}
+
+// Embeddings are kept in photo-cull.json as int8 (plus a float32 scale) so suggestions survive a reload.
+function packVec(v) {
+  let mx = 1e-9;
+  for (const x of v) mx = Math.max(mx, Math.abs(x));
+  const b = new Uint8Array(772);
+  new DataView(b.buffer).setFloat32(0, mx, true);
+  for (let j = 0; j < 768; j++) b[4 + j] = Math.round(v[j] / mx * 127) & 255;
+  return btoa(String.fromCharCode(...b));
+}
+
+function unpackVec(s) {
+  try {
+    const b = Uint8Array.from(atob(s), c => c.charCodeAt(0)), mx = new DataView(b.buffer).getFloat32(0, true), v = new Float32Array(768);
+    for (let j = 0; j < 768; j++) v[j] = ((b[4 + j] << 24) >> 24) / 127 * mx;
+    return v;
+  } catch (e) { return null; }
 }
 
 /* ---------- review: step through the groups, pick one of the guesses or type a label ---------- */
@@ -2065,22 +1801,17 @@ function openReview() {
   renderReview();
 }
 
-function reviewOptions(g) {
-  const opts = (groupAi(g) || []).map(([label, v]) => ({ label, note: Math.round(v * 100) + '%' }));
-  if (g.prevLabel && !opts.some(o => o.label === g.prevLabel)) opts.push({ label: g.prevLabel, note: '沿用上一组' });
-  return opts;
-}
-
 async function renderReview() {
   const g = review.list[review.i];
   if (!g) { closeReview(); toast('已经看完所有待分类的照片'); return; }
-  const rep = repOf(g) || g.photos[0], n = g.photos.length;
-  const current = groupLabel(g);
+  const rep = groupRep(g) || repOf(g) || g.photos[0], n = g.photos.length;
+  const current = groupLabel(g), kind = groupKind(g);
   $('#rvInfo').innerHTML = `第 ${review.i + 1} / ${review.list.length} 组 · ${n > 1 ? `连拍 ${n} 张` : '单张'}<br>${escapeHtml(rep.name)} · ${fmtTime(capTime(rep))}` +
+    (kind ? `<br>AI 大类：<b>${escapeHtml(kind)}</b>` : '') +
     (current ? `<br>当前分类：<b>${escapeHtml(current)}</b>` : '');
-  const opts = reviewOptions(g);
+  const opts = guesses(g);
   $('#rvOpts').innerHTML = opts.length
-    ? opts.map((o, k) => `<button type="button" data-label="${escapeHtml(o.label)}" class="${o.label === current ? 'on' : ''}"><kbd>${k + 1}</kbd>${escapeHtml(o.label)}<small>${o.note}</small></button>`).join('')
+    ? opts.map((o, k) => `<button type="button" data-label="${escapeHtml(o.label)}" class="${o.label === current ? 'on' : ''}"><kbd>${k + 1}</kbd><span>${escapeHtml(o.label)}${o.en ? `<br><small class="rv-en">${escapeHtml(o.en)}</small>` : ''}</span><small>${escapeHtml(o.note)}</small></button>`).join('')
     : '<p class="muted">这一组还没有 AI 识别结果，可以手动输入分类。</p>';
   $('#rvInput').value = '';
   $('#rvPrev').disabled = review.i === 0;
@@ -2154,12 +1885,15 @@ function reviewKey(e) {
 
 /* ---------- organize ---------- */
 function plan() {
-  const useLabel = $('#orgLabel').checked, useReject = $('#orgReject').checked;
+  const useLabel = $('#orgLabel').checked, useReject = $('#orgReject').checked, useBird = $('#orgBird').checked;
   const moves = [];
   for (const p of state.photos) {
     let dest = null;
     if (p.reject && useReject) dest = REJECT_DIR;
-    else if (p.label && useLabel) dest = sanitizeLabel(p.label);
+    else if (p.label && useLabel) {
+      const nest = useBird && p.label !== BIRD && p.group && groupKind(p.group) === BIRD;
+      dest = (nest ? BIRD + '/' : '') + sanitizeLabel(p.label);
+    }
     if (dest && dirOf(p.path) !== dest) moves.push({ p, dest });
   }
   return moves;
@@ -2273,7 +2007,10 @@ async function undoOrganize() {
   }
   try { await state.root.removeEntry(MOVELOG); } catch (e) { /* already gone */ }
   // Remove folders the organize step created, but only if they are now empty (non-recursive delete fails otherwise).
-  for (const d of new Set(data.moves.map(m => dirOf(m.to)).filter(Boolean))) {
+  // Deepest first, so "鸟/物种" goes before "鸟".
+  const dirs = new Set();
+  for (const m of data.moves) for (let d = dirOf(m.to); d; d = dirOf(d)) dirs.add(d);
+  for (const d of [...dirs].sort((a, b) => b.split('/').length - a.split('/').length)) {
     try {
       const parts = d.split('/'), name = parts.pop();
       await (await getDir(state.root, parts.join('/'), false)).removeEntry(name);
@@ -2320,11 +2057,11 @@ async function saveSidecar() {
     if (p.rating) r.r = p.rating;
     if (p.reject) r.x = 1;
     if (p.label) r.l = p.label;
-    if (p.ai) r.a = p.ai;
+    if (p.ai) Object.assign(r, { a: p.ai, kd: p.kind });
+    if (p.vec) r.v = packVec(p.vec);
     photos[p.path] = r;
   }
   const data = { app: 'photo-cull', version: 1, saved: new Date().toISOString(), photos };
-  if (state.candidates) data.candidates = state.candidates;
   try {
     await writeJson(SIDECAR, data);
     state.savedAt = Date.now();
@@ -2335,12 +2072,13 @@ async function saveSidecar() {
 }
 
 function exportCsv() {
-  const head = ['文件', '拍摄时间', '清晰度(0-100)', '清晰度原始值', '亮度', '连拍组', '本组最佳', '可能模糊', '欠曝', '过曝', '星级', '待删除', '分类', 'AI 建议'];
+  const head = ['文件', '拍摄时间', '清晰度(0-100)', '清晰度原始值', '亮度', '连拍组', '本组最佳', '可能模糊', '欠曝', '过曝', '星级', '待删除', '分类', 'AI 大类', 'AI 建议'];
   const rows = (state.analyzed ? state.sorted : state.photos).map(p => [
     p.path, p.time ? fmtTime(p.time) : '', p.pct ?? '', p.sharp != null ? Math.round(p.sharp) : '',
     p.bright != null ? Math.round(p.bright) : '', p.group ? p.group.idx : '', p.best ? '是' : '', p.blurry ? '是' : '',
     p.dark ? '是' : '', p.over ? '是' : '', p.rating || '', p.reject ? '是' : '', p.label,
-    p.group && groupAi(p.group) ? groupAi(p.group).map(([l, v]) => `${l} ${Math.round(v * 100)}%`).join(' / ') : '',
+    p.group ? groupKind(p.group) : '',
+    p.group && groupAi(p.group) ? groupAi(p.group).map(([l, v, en]) => `${l}${en ? ` (${en})` : ''} ${Math.round(v * 100)}%`).join(' / ') : '',
   ]);
   const csv = '﻿' + [head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n');
   const a = document.createElement('a');
@@ -2416,6 +2154,8 @@ $('#btnExport').onclick = exportCsv;
 $('#btnOrganize').onclick = openOrganize;
 $('#orgLabel').onchange = renderPlan;
 $('#orgReject').onchange = renderPlan;
+$('#orgBird').checked = settings.birdFolder;
+$('#orgBird').onchange = e => { settings.birdFolder = e.target.checked; saveSettings(); renderPlan(); };
 $('#orgCancel').onclick = () => $('#dlgOrganize').close();
 $('#orgGo').onclick = runOrganize;
 $('#orgUndo').onclick = undoOrganize;
@@ -2464,19 +2204,6 @@ $('#btnAi').onclick = openAiDialog;
 $('#aiRun').onclick = runAi;
 $('#aiClose').onclick = () => $('#dlgAi').close();
 $('#aiReview').onclick = () => { $('#dlgAi').close(); openReview(); };
-$('#aiEditVocab').onclick = () => {
-  const box = $('#aiCands');
-  const have = new Set(parseCandidates(box.value).map(c => c.label + '|' + c.prompt));
-  const add = [];
-  for (const id of ['Sa', 'General']) {
-    if (!$('#aiVoc' + id).checked) continue;
-    for (const c of vocab(id.toLowerCase())) if (!have.has(c.label + '|' + c.prompt)) add.push(`${c.label} = ${c.prompt}`);
-    $('#aiVoc' + id).checked = false;
-  }
-  if (!add.length) { aiNote('请先勾选要编辑的内置词表。', true); return; }
-  box.value = (box.value.trim() ? box.value.replace(/\s+$/, '') + '\n' : '') + add.join('\n');
-  aiNote(`已把 ${add.length} 项复制到上面的框里，并取消了内置词表的勾选。改好后直接点“开始识别”。`);
-};
 
 $('#dlgReview').addEventListener('keydown', reviewKey);
 $('#dlgReview').addEventListener('close', reviewClosed);
@@ -2486,14 +2213,6 @@ $('#rvSkip').onclick = () => reviewStep(1);
 $('#rvClose').onclick = closeReview;
 $('#aiAccept').onclick = acceptConfident;
 $('#aiThr').onchange = () => { if (!ai.busy) aiSummary(); };
-$('#aiModel').onchange = e => { $('#aiModelIdRow').hidden = e.target.value !== 'custom'; };
-$('#aiFill').onclick = () => {
-  const box = $('#aiCands');
-  const have = new Set(parseCandidates(box.value).map(c => c.label));
-  const add = allLabels().filter(l => !have.has(l));
-  if (!add.length) { aiSummary('已有的分类名都在列表里了。'); return; }
-  box.value = (box.value.trim() ? box.value.replace(/\s+$/, '') + '\n' : '') + add.join('\n');
-};
 
 $('#grid').addEventListener('click', e => {
   const el = e.target.closest('.tile');
@@ -2562,7 +2281,7 @@ window.addEventListener('beforeunload', e => {
 });
 
 // Test/automation hook: open any FileSystemDirectoryHandle (e.g. one from the Origin Private File System).
-window.photoCull = { openHandle, state, settings, ai };
+window.photoCull = { openHandle, state, settings, ai, classify };
 </script>
 </body>
 </html>
